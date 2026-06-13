@@ -469,98 +469,32 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 ## 13. Estrutura de Módulos
 
+O projeto deve seguir a estrutura **MVCS**:
+
+- **Model:** representado pelos models do Prisma.
+- **View:** não se aplica diretamente à API, mas o contrato de entrada/saída deve ficar claro via controllers e DTOs.
+- **Controller:** recebe a requisição, aplica guards/decorators e delega a regra de negócio.
+- **Service:** concentra a regra de negócio em arquivos pequenos e específicos.
+
+Dentro de cada módulo, `services/` deve ter **um arquivo para cada função/caso de uso**. Exemplo: `find-all-categories.service.ts`, `create-category.service.ts`, `delete-category.service.ts`. Não concentrar todas as ações em um único arquivo `*.service.ts`.
+
 ```
 src/
 ├── prisma/
 │   ├── prisma.module.ts
 │   └── prisma.service.ts
-├── auth/
-│   ├── auth.module.ts
-│   ├── auth.controller.ts
-│   ├── auth.controller.spec.ts
-│   ├── auth.service.ts
-│   ├── auth.service.spec.ts
-│   ├── strategies/
-│   │   ├── jwt.strategy.ts
-│   │   └── jwt-refresh.strategy.ts
-│   ├── guards/
-│   │   ├── jwt.guard.ts
-│   │   └── jwt-refresh.guard.ts
-│   └── dto/
-│       ├── register.dto.ts
-│       └── login.dto.ts
-├── users/
-│   ├── users.module.ts
-│   ├── users.controller.ts
-│   ├── users.controller.spec.ts
-│   ├── users.service.ts
-│   ├── users.service.spec.ts
-│   └── dto/
-│       ├── update-user.dto.ts
-│       └── update-preferences.dto.ts
-├── categories/
-│   ├── categories.module.ts
-│   ├── categories.controller.ts
-│   ├── categories.controller.spec.ts
-│   ├── categories.service.ts
-│   ├── categories.service.spec.ts
-│   └── dto/
-│       └── create-category.dto.ts
-├── cards/
-│   ├── cards.module.ts
-│   ├── cards.controller.ts
-│   ├── cards.controller.spec.ts
-│   ├── cards.service.ts
-│   ├── cards.service.spec.ts
-│   └── dto/
-│       ├── create-card.dto.ts
-│       └── update-card.dto.ts
-├── salaries/
-│   ├── salaries.module.ts
-│   ├── salaries.controller.ts
-│   ├── salaries.controller.spec.ts
-│   ├── salaries.service.ts
-│   ├── salaries.service.spec.ts
-│   └── dto/
-│       └── create-salary.dto.ts
-├── incomes/
-│   ├── incomes.module.ts
-│   ├── incomes.controller.ts
-│   ├── incomes.controller.spec.ts
-│   ├── incomes.service.ts
-│   ├── incomes.service.spec.ts
-│   └── dto/
-│       └── create-income.dto.ts
-├── transactions/
-│   ├── transactions.module.ts
-│   ├── transactions.controller.ts
-│   ├── transactions.controller.spec.ts
-│   ├── transactions.service.ts
-│   ├── transactions.service.spec.ts
-│   └── dto/
-│       └── create-transaction.dto.ts
-├── fixed-expenses/
-│   ├── fixed-expenses.module.ts
-│   ├── fixed-expenses.controller.ts
-│   ├── fixed-expenses.controller.spec.ts
-│   ├── fixed-expenses.service.ts
-│   ├── fixed-expenses.service.spec.ts
-│   └── dto/
-│       └── create-fixed-expense.dto.ts
-├── aside-expenses/
-│   ├── aside-expenses.module.ts
-│   ├── aside-expenses.controller.ts
-│   ├── aside-expenses.controller.spec.ts
-│   ├── aside-expenses.service.ts
-│   ├── aside-expenses.service.spec.ts
-│   └── dto/
-│       └── create-aside-expense.dto.ts
-├── reports/
-│   ├── reports.module.ts
-│   ├── reports.controller.ts
-│   ├── reports.controller.spec.ts
-│   ├── reports.service.ts
-│   └── reports.service.spec.ts
+├── module-name/
+│   ├── module-name.module.ts
+│   ├── module-name.controller.ts
+│   ├── module-name.controller.spec.ts
+│   ├── dto/
+│   │   └── create-module-name.dto.ts
+│   └── services/
+│       ├── create-module-name.service.ts
+│       ├── find-all-module-name.service.ts
+│       ├── find-one-module-name.service.ts
+│       ├── update-module-name.service.ts
+│       └── delete-module-name.service.ts
 └── app.module.ts
 ```
 
