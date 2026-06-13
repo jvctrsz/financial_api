@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                       String         @id @default(uuid()) @db.Uuid
+  name                     String
+  email                    String         @unique
+  passwordHash             String
+  includeIncomesInBalance  Boolean        @default(false)
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  salaries                 Salary[]
+  salaryPeriods            SalaryPeriod[]
+
+  @@map("users")
+}
+
+model Salary {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  amount    Decimal  @db.Decimal(12, 2)
+  paidAt    DateTime @db.Date
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  periods   SalaryPeriod[]
+
+  @@unique([userId, paidAt])
+  @@index([userId, paidAt])
+  @@map("salaries")
+}
+
+model SalaryPeriod {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  salaryId       String    @db.Uuid
+  startedAt      DateTime  @db.Date
+  endedAt        DateTime? @db.Date
+  referenceMonth DateTime  @db.Date
+  createdAt      DateTime  @default(now())
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salary         Salary    @relation(fields: [salaryId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt, endedAt])
+  @@index([userId, referenceMonth])
+  @@map("salary_periods")
+}
