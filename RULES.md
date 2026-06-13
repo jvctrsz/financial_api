@@ -166,6 +166,7 @@ Período Financeiro de Maio/2025:
 ```
 
 ### Salário (`Salary`)
+
 - Imutável — sem `updatedAt`, sem endpoint de edição.
 - `paidAt` é informado **manualmente** pelo usuário na data em que recebeu.
 - Constraint única: `(userId, paidAt)` — não pode haver dois salários no mesmo dia para o mesmo usuário.
