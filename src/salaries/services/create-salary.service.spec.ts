@@ -1,48 +1,16 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException } from '@nestjs/common';
 import { subDays } from 'date-fns';
-import { PrismaService } from '../prisma/prisma.service';
-import { SalariesService } from './salaries.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
+import { CreateSalaryService } from './create-salary.service';
 
-type MockPrismaService = {
-  salary: {
-    create: jest.Mock;
-    findFirst: jest.Mock;
-  };
-  salaryPeriod: {
-    create: jest.Mock;
-    findFirst: jest.Mock;
-    update: jest.Mock;
-  };
-  $transaction: <T>(
-    callback: (tx: MockPrismaService) => Promise<T>,
-  ) => Promise<T>;
-};
-
-const makePrisma = (): MockPrismaService => {
-  const prisma: MockPrismaService = {
-    salary: {
-      create: jest.fn(),
-      findFirst: jest.fn(),
-    },
-    salaryPeriod: {
-      create: jest.fn(),
-      findFirst: jest.fn(),
-      update: jest.fn(),
-    },
-    $transaction: <T>(callback: (tx: MockPrismaService) => Promise<T>) =>
-      callback(prisma),
-  };
-
-  return prisma;
-};
-
-describe('SalariesService', () => {
+describe('CreateSalaryService', () => {
   let prisma: MockPrismaService;
-  let service: SalariesService;
+  let service: CreateSalaryService;
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new SalariesService(prisma as unknown as PrismaService);
+    service = new CreateSalaryService(prisma as unknown as PrismaService);
   });
 
   it('deve criar salário e gerar SalaryPeriod automaticamente', async () => {
@@ -66,7 +34,7 @@ describe('SalariesService', () => {
     prisma.salaryPeriod.create.mockResolvedValue(period);
 
     await expect(
-      service.create('user-1', { amount: 5000, paidAt: '2025-05-07' }),
+      service.execute('user-1', { amount: 5000, paidAt: '2025-05-07' }),
     ).resolves.toEqual({ salary, period });
 
     expect(prisma.salary.create).toHaveBeenCalledWith({
@@ -111,7 +79,7 @@ describe('SalariesService', () => {
       salaryId: salary.id,
     });
 
-    await service.create('user-1', { amount: 5200, paidAt: '2025-06-06' });
+    await service.execute('user-1', { amount: 5200, paidAt: '2025-06-06' });
 
     expect(prisma.salaryPeriod.update).toHaveBeenCalledWith({
       where: { id: 'period-may' },
@@ -123,38 +91,7 @@ describe('SalariesService', () => {
     prisma.salary.create.mockRejectedValue({ code: 'P2002' });
 
     await expect(
-      service.create('user-1', { amount: 5000, paidAt: '2025-05-07' }),
+      service.execute('user-1', { amount: 5000, paidAt: '2025-05-07' }),
     ).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('deve retornar salário vigente via fallback', async () => {
-    const salary = {
-      id: 'salary-1',
-      paidAt: new Date('2025-05-07T00:00:00.000Z'),
-    };
-
-    prisma.salary.findFirst.mockResolvedValue(salary);
-
-    await expect(
-      service.findCurrentByDate('user-1', new Date('2025-05-20T00:00:00.000Z')),
-    ).resolves.toBe(salary);
-
-    expect(prisma.salary.findFirst).toHaveBeenCalledWith({
-      where: {
-        userId: 'user-1',
-        paidAt: {
-          lte: new Date('2025-05-20T00:00:00.000Z'),
-        },
-      },
-      orderBy: { paidAt: 'desc' },
-    });
-  });
-
-  it('deve retornar erro se nenhum salário foi cadastrado', async () => {
-    prisma.salary.findFirst.mockResolvedValue(null);
-
-    await expect(
-      service.findCurrentByDate('user-1', new Date('2025-05-20T00:00:00.000Z')),
-    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
