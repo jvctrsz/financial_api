@@ -1,11 +1,19 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Request } from 'express';
+import { JwtGuard } from '../auth/guards/jwt.guard';
 import { CreateSalaryDto } from './dto/create-salary.dto';
 import { CreateSalaryService } from './services/create-salary.service';
 import { FindAllSalariesService } from './services/find-all-salaries.service';
 import { FindCurrentSalaryService } from './services/find-current-salary.service';
 
-const temporaryUserId = '00000000-0000-0000-0000-000000000000';
+type AuthenticatedRequest = Request & {
+  user: {
+    id: string;
+    email: string;
+  };
+};
 
+@UseGuards(JwtGuard)
 @Controller('salaries')
 export class SalariesController {
   constructor(
@@ -15,17 +23,17 @@ export class SalariesController {
   ) {}
 
   @Post()
-  create(@Body() dto: CreateSalaryDto) {
-    return this.createSalaryService.execute(temporaryUserId, dto);
+  create(@Req() request: AuthenticatedRequest, @Body() dto: CreateSalaryDto) {
+    return this.createSalaryService.createSalary(request.user.id, dto);
   }
 
   @Get()
-  findAll() {
-    return this.findAllSalariesService.execute(temporaryUserId);
+  findAll(@Req() request: AuthenticatedRequest) {
+    return this.findAllSalariesService.findAllSalaries(request.user.id);
   }
 
   @Get('current')
-  findCurrent() {
-    return this.findCurrentSalaryService.execute(temporaryUserId);
+  findCurrent(@Req() request: AuthenticatedRequest) {
+    return this.findCurrentSalaryService.findCurrentSalary(request.user.id);
   }
 }

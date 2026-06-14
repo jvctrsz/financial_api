@@ -23,7 +23,10 @@ describe('FindCurrentSalaryByDateService', () => {
     prisma.salary.findFirst.mockResolvedValue(salary);
 
     await expect(
-      service.execute('user-1', new Date('2025-05-20T00:00:00.000Z')),
+      service.findCurrentSalaryByDate(
+        'user-1',
+        new Date('2025-05-20T00:00:00.000Z'),
+      ),
     ).resolves.toBe(salary);
 
     expect(prisma.salary.findFirst).toHaveBeenCalledWith({
@@ -41,7 +44,10 @@ describe('FindCurrentSalaryByDateService', () => {
     prisma.salary.findFirst.mockResolvedValue(null);
 
     await expect(
-      service.execute('user-1', new Date('2025-05-20T00:00:00.000Z')),
+      service.findCurrentSalaryByDate(
+        'user-1',
+        new Date('2025-05-20T00:00:00.000Z'),
+      ),
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

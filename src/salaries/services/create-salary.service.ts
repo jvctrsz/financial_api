@@ -9,7 +9,7 @@ import { isUniqueConstraintError } from '../utils/prisma-error.util';
 export class CreateSalaryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  execute = async (userId: string, dto: CreateSalaryDto) => {
+  createSalary = async (userId: string, dto: CreateSalaryDto) => {
     const paidAt = parseDateOnly(dto.paidAt);
 
     try {

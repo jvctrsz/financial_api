@@ -8,6 +8,9 @@ export class FindCurrentSalaryService {
     private readonly findCurrentSalaryByDateService: FindCurrentSalaryByDateService,
   ) {}
 
-  execute = async (userId: string) =>
-    this.findCurrentSalaryByDateService.execute(userId, todayAsUtcDateOnly());
+  findCurrentSalary = async (userId: string) =>
+    this.findCurrentSalaryByDateService.findCurrentSalaryByDate(
+      userId,
+      todayAsUtcDateOnly(),
+    );
 }

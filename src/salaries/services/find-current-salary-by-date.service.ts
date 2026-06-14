@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class FindCurrentSalaryByDateService {
   constructor(private readonly prisma: PrismaService) {}
 
-  execute = async (userId: string, date: Date) => {
+  findCurrentSalaryByDate = async (userId: string, date: Date) => {
     const salary = await this.prisma.salary.findFirst({
       where: {
         userId,

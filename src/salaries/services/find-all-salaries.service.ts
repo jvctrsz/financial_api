@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class FindAllSalariesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  execute = async (userId: string) =>
+  findAllSalaries = async (userId: string) =>
     this.prisma.salary.findMany({
       where: { userId },
       orderBy: { paidAt: 'desc' },

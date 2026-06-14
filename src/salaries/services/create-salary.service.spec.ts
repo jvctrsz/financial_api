@@ -34,7 +34,7 @@ describe('CreateSalaryService', () => {
     prisma.salaryPeriod.create.mockResolvedValue(period);
 
     await expect(
-      service.execute('user-1', { amount: 5000, paidAt: '2025-05-07' }),
+      service.createSalary('user-1', { amount: 5000, paidAt: '2025-05-07' }),
     ).resolves.toEqual({ salary, period });
 
     expect(prisma.salary.create).toHaveBeenCalledWith({
@@ -79,7 +79,10 @@ describe('CreateSalaryService', () => {
       salaryId: salary.id,
     });
 
-    await service.execute('user-1', { amount: 5200, paidAt: '2025-06-06' });
+    await service.createSalary('user-1', {
+      amount: 5200,
+      paidAt: '2025-06-06',
+    });
 
     expect(prisma.salaryPeriod.update).toHaveBeenCalledWith({
       where: { id: 'period-may' },
@@ -91,7 +94,7 @@ describe('CreateSalaryService', () => {
     prisma.salary.create.mockRejectedValue({ code: 'P2002' });
 
     await expect(
-      service.execute('user-1', { amount: 5000, paidAt: '2025-05-07' }),
+      service.createSalary('user-1', { amount: 5000, paidAt: '2025-05-07' }),
     ).rejects.toBeInstanceOf(ConflictException);
   });
 });

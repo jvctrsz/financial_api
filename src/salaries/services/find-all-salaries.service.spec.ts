@@ -27,7 +27,7 @@ describe('FindAllSalariesService', () => {
 
     prisma.salary.findMany.mockResolvedValue(salaries);
 
-    await expect(service.execute('user-1')).resolves.toBe(salaries);
+    await expect(service.findAllSalaries('user-1')).resolves.toBe(salaries);
 
     expect(prisma.salary.findMany).toHaveBeenCalledWith({
       where: { userId: 'user-1' },
