@@ -65,6 +65,15 @@ Soft delete significa setar `deletedAt = now()`. O registro **nunca é removido 
 ### Isolamento por Usuário
 Todo service deve validar que o recurso sendo acessado ou manipulado pertence ao `userId` extraído do JWT. Nunca confiar em `userId` enviado pelo cliente no body da requisição.
 
+### Identificadores
+Todos os models devem usar UUID v7 como identificador primário. No Prisma, campos `id` devem seguir o padrão:
+
+```prisma
+id String @id @default(uuid(7)) @db.Uuid
+```
+
+Campos de relacionamento que apontam para esses identificadores devem permanecer como `String @db.Uuid`. Não usar `uuid()` sem versão, `cuid`, `ulid`, IDs incrementais ou geração manual de IDs na aplicação para chaves primárias.
+
 ---
 
 ## 3. Autenticação e Usuários
