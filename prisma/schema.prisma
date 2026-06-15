@@ -16,8 +16,22 @@ model User {
   updatedAt                DateTime       @updatedAt
   salaries                 Salary[]
   salaryPeriods            SalaryPeriod[]
+  cards                    Card[]
 
   @@map("users")
+}
+
+model Card {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  userId     String   @db.Uuid
+  name       String
+  closingDay Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("cards")
 }
 
 model Salary {
