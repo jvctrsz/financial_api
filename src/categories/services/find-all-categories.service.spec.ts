@@ -28,11 +28,15 @@ describe('FindAllCategoriesService', () => {
       where: {
         userId: 'user-1',
         parentId: null,
+        deletedAt: null,
       },
       select: {
         id: true,
         name: true,
         children: {
+          where: {
+            deletedAt: null,
+          },
           select: {
             id: true,
             name: true,
@@ -58,6 +62,7 @@ describe('FindAllCategoriesService', () => {
         where: {
           userId: 'user-2',
           parentId: null,
+          deletedAt: null,
         },
       }),
     );
@@ -104,5 +109,37 @@ describe('FindAllCategoriesService', () => {
     prisma.category.findMany.mockResolvedValue([]);
 
     await expect(service.findAllCategories('user-1')).resolves.toEqual([]);
+  });
+  it('deve filtrar categorias e filhos soft-deletados', async () => {
+    prisma.category.findMany.mockResolvedValue([]);
+
+    await service.findAllCategories('user-1');
+
+    expect(prisma.category.findMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        parentId: null,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        name: true,
+        children: {
+          where: {
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+            name: true,
+          },
+          orderBy: {
+            name: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        name: 'asc',
+      },
+    });
   });
 });

@@ -63,6 +63,7 @@ describe('CreateCategoryService', () => {
       where: {
         id: 'category-1',
         userId: 'user-1',
+        deletedAt: null,
       },
     });
     expect(prisma.category.create).toHaveBeenCalledWith({
@@ -99,6 +100,26 @@ describe('CreateCategoryService', () => {
       where: {
         id: 'category-1',
         userId: 'user-2',
+        deletedAt: null,
+      },
+    });
+  });
+
+  it('deve rejeitar subcategoria apontando para categoria soft-deletada', async () => {
+    prisma.category.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.createCategory('user-1', {
+        name: 'Mercado',
+        parentId: 'category-1',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.category.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'category-1',
+        userId: 'user-1',
+        deletedAt: null,
       },
     });
   });

@@ -4,6 +4,7 @@ export type MockPrismaService = {
     findMany: jest.Mock;
     findFirst: jest.Mock;
     delete: jest.Mock;
+    update: jest.Mock;
   };
   transaction: {
     findFirst: jest.Mock;
@@ -16,6 +17,7 @@ export const makePrisma = (): MockPrismaService => ({
     findMany: jest.fn(),
     findFirst: jest.fn(),
     delete: jest.fn(),
+    update: jest.fn(),
   },
   transaction: {
     findFirst: jest.fn(),

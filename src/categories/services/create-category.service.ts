@@ -21,6 +21,7 @@ export class CreateCategoryService {
       where: {
         id: dto.parentId,
         userId,
+        deletedAt: null,
       },
     });
 

@@ -45,6 +45,7 @@ export class CreateTransactionService {
       where: {
         id: categoryId,
         userId,
+        deletedAt: null,
       },
     });
 

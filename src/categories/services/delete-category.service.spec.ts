@@ -12,7 +12,7 @@ describe('DeleteCategoryService', () => {
     service = new DeleteCategoryService(prisma as unknown as PrismaService);
   });
 
-  it('deve deletar categoria raiz sem filhos', async () => {
+  it('deve fazer soft delete de categoria raiz sem filhos ativos', async () => {
     const category = {
       id: 'category-1',
       userId: 'user-1',
@@ -21,18 +21,25 @@ describe('DeleteCategoryService', () => {
     };
 
     prisma.category.findFirst.mockResolvedValue(category);
-    prisma.category.delete.mockResolvedValue(category);
+    prisma.category.update.mockResolvedValue({
+      ...category,
+      deletedAt: new Date(),
+    });
 
-    await expect(service.deleteCategory('user-1', 'category-1')).resolves.toBe(
-      category,
-    );
+    await expect(
+      service.deleteCategory('user-1', 'category-1'),
+    ).resolves.toMatchObject({
+      id: 'category-1',
+      deletedAt: expect.any(Date) as Date,
+    });
 
-    expect(prisma.category.delete).toHaveBeenCalledWith({
+    expect(prisma.category.update).toHaveBeenCalledWith({
       where: { id: 'category-1' },
+      data: { deletedAt: expect.any(Date) as Date },
     });
   });
 
-  it('deve deletar subcategoria', async () => {
+  it('deve fazer soft delete de subcategoria sem transacoes ativas', async () => {
     const category = {
       id: 'category-2',
       userId: 'user-1',
@@ -41,11 +48,18 @@ describe('DeleteCategoryService', () => {
     };
 
     prisma.category.findFirst.mockResolvedValue(category);
-    prisma.category.delete.mockResolvedValue(category);
+    prisma.transaction.findFirst.mockResolvedValue(null);
+    prisma.category.update.mockResolvedValue({
+      ...category,
+      deletedAt: new Date(),
+    });
 
-    await expect(service.deleteCategory('user-1', 'category-2')).resolves.toBe(
-      category,
-    );
+    await expect(
+      service.deleteCategory('user-1', 'category-2'),
+    ).resolves.toMatchObject({
+      id: 'category-2',
+      deletedAt: expect.any(Date) as Date,
+    });
   });
 
   it('deve rejeitar delete de categoria inexistente', async () => {
@@ -67,9 +81,13 @@ describe('DeleteCategoryService', () => {
       where: {
         id: 'category-1',
         userId: 'user-2',
+        deletedAt: null,
       },
       include: {
         children: {
+          where: {
+            deletedAt: null,
+          },
           select: {
             id: true,
           },
@@ -78,7 +96,7 @@ describe('DeleteCategoryService', () => {
     });
   });
 
-  it('deve rejeitar delete de categoria raiz com filhos', async () => {
+  it('deve rejeitar delete de categoria raiz com filhos ativos', async () => {
     prisma.category.findFirst.mockResolvedValue({
       id: 'category-1',
       userId: 'user-1',
@@ -90,10 +108,50 @@ describe('DeleteCategoryService', () => {
       service.deleteCategory('user-1', 'category-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(prisma.category.delete).not.toHaveBeenCalled();
+    expect(prisma.category.update).not.toHaveBeenCalled();
   });
 
-  it('deve rejeitar delete de subcategoria com transacoes vinculadas', async () => {
+  it('deve fazer soft delete de categoria raiz com apenas filhos soft-deletados', async () => {
+    const category = {
+      id: 'category-1',
+      userId: 'user-1',
+      parentId: null,
+      children: [],
+    };
+
+    prisma.category.findFirst.mockResolvedValue(category);
+    prisma.category.update.mockResolvedValue({
+      ...category,
+      deletedAt: new Date(),
+    });
+
+    await expect(
+      service.deleteCategory('user-1', 'category-1'),
+    ).resolves.toMatchObject({
+      id: 'category-1',
+      deletedAt: expect.any(Date) as Date,
+    });
+
+    expect(prisma.category.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'category-1',
+        userId: 'user-1',
+        deletedAt: null,
+      },
+      include: {
+        children: {
+          where: {
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+          },
+        },
+      },
+    });
+  });
+
+  it('deve rejeitar delete de subcategoria com transacoes ativas', async () => {
     prisma.category.findFirst.mockResolvedValue({
       id: 'category-2',
       userId: 'user-1',
@@ -109,11 +167,45 @@ describe('DeleteCategoryService', () => {
     expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
       where: {
         categoryId: 'category-2',
+        deletedAt: null,
       },
       select: {
         id: true,
       },
     });
-    expect(prisma.category.delete).not.toHaveBeenCalled();
+    expect(prisma.category.update).not.toHaveBeenCalled();
+  });
+
+  it('deve fazer soft delete de subcategoria com apenas transacoes soft-deletadas', async () => {
+    const category = {
+      id: 'category-2',
+      userId: 'user-1',
+      parentId: 'category-1',
+      children: [],
+    };
+
+    prisma.category.findFirst.mockResolvedValue(category);
+    prisma.transaction.findFirst.mockResolvedValue(null);
+    prisma.category.update.mockResolvedValue({
+      ...category,
+      deletedAt: new Date(),
+    });
+
+    await expect(
+      service.deleteCategory('user-1', 'category-2'),
+    ).resolves.toMatchObject({
+      id: 'category-2',
+      deletedAt: expect.any(Date) as Date,
+    });
+
+    expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+      where: {
+        categoryId: 'category-2',
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
   });
 });

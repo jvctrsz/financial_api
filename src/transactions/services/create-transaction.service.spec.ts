@@ -282,6 +282,29 @@ describe('CreateTransactionService', () => {
       where: {
         id: 'category-1',
         userId: 'user-2',
+        deletedAt: null,
+      },
+    });
+  });
+
+  it('deve rejeitar subcategoria soft-deletada', async () => {
+    prisma.category.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.createTransaction('user-1', {
+        amount: 25,
+        description: 'Mercado',
+        transactionDate: '2025-05-07',
+        categoryId: 'category-1',
+        type: TransactionType.PIX,
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.category.findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'category-1',
+        userId: 'user-1',
+        deletedAt: null,
       },
     });
   });

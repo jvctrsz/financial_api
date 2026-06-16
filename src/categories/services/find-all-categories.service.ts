@@ -10,11 +10,15 @@ export class FindAllCategoriesService {
       where: {
         userId,
         parentId: null,
+        deletedAt: null,
       },
       select: {
         id: true,
         name: true,
         children: {
+          where: {
+            deletedAt: null,
+          },
           select: {
             id: true,
             name: true,

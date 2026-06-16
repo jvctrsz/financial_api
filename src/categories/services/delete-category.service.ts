@@ -14,9 +14,13 @@ export class DeleteCategoryService {
       where: {
         id: categoryId,
         userId,
+        deletedAt: null,
       },
       include: {
         children: {
+          where: {
+            deletedAt: null,
+          },
           select: {
             id: true,
           },
@@ -38,6 +42,7 @@ export class DeleteCategoryService {
       const transaction = await this.prisma.transaction.findFirst({
         where: {
           categoryId: category.id,
+          deletedAt: null,
         },
         select: {
           id: true,
@@ -51,8 +56,9 @@ export class DeleteCategoryService {
       }
     }
 
-    return this.prisma.category.delete({
+    return this.prisma.category.update({
       where: { id: category.id },
+      data: { deletedAt: new Date() },
     });
   };
 }
