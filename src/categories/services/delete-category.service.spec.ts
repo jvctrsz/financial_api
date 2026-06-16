@@ -92,4 +92,28 @@ describe('DeleteCategoryService', () => {
 
     expect(prisma.category.delete).not.toHaveBeenCalled();
   });
+
+  it('deve rejeitar delete de subcategoria com transacoes vinculadas', async () => {
+    prisma.category.findFirst.mockResolvedValue({
+      id: 'category-2',
+      userId: 'user-1',
+      parentId: 'category-1',
+      children: [],
+    });
+    prisma.transaction.findFirst.mockResolvedValue({ id: 'transaction-1' });
+
+    await expect(
+      service.deleteCategory('user-1', 'category-2'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+      where: {
+        categoryId: 'category-2',
+      },
+      select: {
+        id: true,
+      },
+    });
+    expect(prisma.category.delete).not.toHaveBeenCalled();
+  });
 });

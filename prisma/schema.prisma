@@ -18,20 +18,22 @@ model User {
   salaryPeriods           SalaryPeriod[]
   cards                   Card[]
   categories              Category[]
+  transactions            Transaction[]
 
   @@map("users")
 }
 
 model Category {
-  id        String     @id @default(uuid(7)) @db.Uuid
-  userId    String     @db.Uuid
-  name      String
-  parentId  String?    @db.Uuid
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children  Category[] @relation("CategoryTree")
+  id           String        @id @default(uuid(7)) @db.Uuid
+  userId       String        @db.Uuid
+  name         String
+  parentId     String?       @db.Uuid
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent       Category?     @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Category[]    @relation("CategoryTree")
+  transactions Transaction[]
 
   @@index([userId])
   @@index([parentId])
@@ -39,14 +41,15 @@ model Category {
 }
 
 model Card {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  userId     String   @db.Uuid
-  name       String
-  closingDay Int
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  isDefault  Boolean  @default(false)
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           String        @id @default(uuid(7)) @db.Uuid
+  userId       String        @db.Uuid
+  name         String
+  closingDay   Int
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  isDefault    Boolean       @default(false)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
 
   @@index([userId, createdAt])
   @@map("cards")
@@ -67,17 +70,51 @@ model Salary {
 }
 
 model SalaryPeriod {
-  id             String    @id @default(uuid(7)) @db.Uuid
-  userId         String    @db.Uuid
-  salaryId       String    @db.Uuid
-  startedAt      DateTime  @db.Date
-  endedAt        DateTime? @db.Date
-  referenceMonth DateTime  @db.Date
-  createdAt      DateTime  @default(now())
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  salary         Salary    @relation(fields: [salaryId], references: [id], onDelete: Cascade)
+  id             String        @id @default(uuid(7)) @db.Uuid
+  userId         String        @db.Uuid
+  salaryId       String        @db.Uuid
+  startedAt      DateTime      @db.Date
+  endedAt        DateTime?     @db.Date
+  referenceMonth DateTime      @db.Date
+  createdAt      DateTime      @default(now())
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  salary         Salary        @relation(fields: [salaryId], references: [id], onDelete: Cascade)
+  transactions   Transaction[]
 
   @@index([userId, startedAt, endedAt])
   @@index([userId, referenceMonth])
   @@map("salary_periods")
+}
+
+enum TransactionType {
+  CREDIT
+  DEBIT
+  PIX
+}
+
+model Transaction {
+  id              String          @id @default(uuid(7)) @db.Uuid
+  userId          String          @db.Uuid
+  categoryId      String          @db.Uuid
+  cardId          String?         @db.Uuid
+  periodId        String          @db.Uuid
+  fixedExpenseId  String?         @db.Uuid
+  type            TransactionType
+  amount          Decimal         @db.Decimal(12, 2)
+  description     String
+  transactionDate DateTime        @db.Date
+  billingDate     DateTime        @db.Date
+  deletedAt       DateTime?
+  createdAt       DateTime        @default(now())
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category        Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  card            Card?           @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  period          SalaryPeriod    @relation(fields: [periodId], references: [id], onDelete: Restrict)
+
+  @@index([userId, periodId, deletedAt])
+  @@index([userId, billingDate, deletedAt])
+  @@index([categoryId])
+  @@index([cardId])
+  @@index([fixedExpenseId])
+  @@map("transactions")
 }

@@ -1,8 +1,11 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { subDays } from 'date-fns';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateSalaryDto } from '../dto/create-salary.dto';
-import { firstDayOfUtcMonth, parseDateOnly } from '../utils/date-only.util';
+import {
+  firstDayOfUtcMonth,
+  parseDateOnly,
+  subUtcDateOnlyDays,
+} from '../utils/date-only.util';
 import { isUniqueConstraintError } from '../utils/prisma-error.util';
 
 @Injectable()
@@ -25,15 +28,27 @@ export class CreateSalaryService {
         const previousPeriod = await tx.salaryPeriod.findFirst({
           where: {
             userId,
-            endedAt: null,
+            startedAt: {
+              lt: paidAt,
+            },
           },
           orderBy: { startedAt: 'desc' },
+        });
+
+        const nextPeriod = await tx.salaryPeriod.findFirst({
+          where: {
+            userId,
+            startedAt: {
+              gt: paidAt,
+            },
+          },
+          orderBy: { startedAt: 'asc' },
         });
 
         if (previousPeriod) {
           await tx.salaryPeriod.update({
             where: { id: previousPeriod.id },
-            data: { endedAt: subDays(paidAt, 1) },
+            data: { endedAt: subUtcDateOnlyDays(paidAt, 1) },
           });
         }
 
@@ -42,7 +57,9 @@ export class CreateSalaryService {
             userId,
             salaryId: salary.id,
             startedAt: salary.paidAt,
-            endedAt: null,
+            endedAt: nextPeriod
+              ? subUtcDateOnlyDays(nextPeriod.startedAt, 1)
+              : null,
             referenceMonth: firstDayOfUtcMonth(salary.paidAt),
           },
         });

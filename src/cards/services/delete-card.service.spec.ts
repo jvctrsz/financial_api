@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
 import { DeleteCardService } from './delete-card.service';
@@ -46,5 +46,24 @@ describe('DeleteCardService', () => {
         userId: 'user-2',
       },
     });
+  });
+
+  it('deve rejeitar delete de cartao com transacoes vinculadas', async () => {
+    prisma.card.findFirst.mockResolvedValue({ id: 'card-1', userId: 'user-1' });
+    prisma.transaction.findFirst.mockResolvedValue({ id: 'transaction-1' });
+
+    await expect(service.deleteCard('user-1', 'card-1')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+
+    expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+      where: {
+        cardId: 'card-1',
+      },
+      select: {
+        id: true,
+      },
+    });
+    expect(prisma.card.delete).not.toHaveBeenCalled();
   });
 });

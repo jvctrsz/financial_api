@@ -34,6 +34,23 @@ export class DeleteCategoryService {
       );
     }
 
+    if (category.parentId !== null) {
+      const transaction = await this.prisma.transaction.findFirst({
+        where: {
+          categoryId: category.id,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (transaction) {
+        throw new BadRequestException(
+          'Não é permitido deletar subcategoria com transações vinculadas.',
+        );
+      }
+    }
+
     return this.prisma.category.delete({
       where: { id: category.id },
     });
