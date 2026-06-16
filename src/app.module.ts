@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './auth/auth.module';
 import { CardsModule } from './cards/cards.module';
+import { CategoriesModule } from './categories/categories.module';
 import { SalariesModule } from './salaries/salaries.module';
 
 @Module({
@@ -11,6 +12,7 @@ import { SalariesModule } from './salaries/salaries.module';
     }),
     AuthModule,
     CardsModule,
+    CategoriesModule,
     SalariesModule,
   ],
 })
