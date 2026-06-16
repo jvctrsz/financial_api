@@ -17,6 +17,7 @@ import { CreateCardService } from './services/create-card.service';
 import { DeleteCardService } from './services/delete-card.service';
 import { FindAllCardsService } from './services/find-all-cards.service';
 import { UpdateCardService } from './services/update-card.service';
+import { ChangeDefaultCardService } from './services/change-default-card.service';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -33,6 +34,7 @@ export class CardsController {
     private readonly findAllCardsService: FindAllCardsService,
     private readonly updateCardService: UpdateCardService,
     private readonly deleteCardService: DeleteCardService,
+    private readonly changeDefaultCardService: ChangeDefaultCardService,
   ) {}
 
   @Post()
@@ -57,5 +59,13 @@ export class CardsController {
   @Delete(':id')
   delete(@Req() request: AuthenticatedRequest, @Param('id') cardId: string) {
     return this.deleteCardService.deleteCard(request.user.id, cardId);
+  }
+
+  @Patch('default/:id')
+  change(@Req() request: AuthenticatedRequest, @Param('id') cardId: string) {
+    return this.changeDefaultCardService.changeDefaultCard(
+      request.user.id,
+      cardId,
+    );
   }
 }

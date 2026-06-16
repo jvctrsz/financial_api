@@ -2,14 +2,22 @@ import { BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
 import { CreateCardService } from './create-card.service';
+import { FindAllCardsService } from './find-all-cards.service';
 
 describe('CreateCardService', () => {
   let prisma: MockPrismaService;
+  let findAllCardsService: Pick<FindAllCardsService, 'findAllCards'>;
   let service: CreateCardService;
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new CreateCardService(prisma as unknown as PrismaService);
+    findAllCardsService = {
+      findAllCards: jest.fn().mockResolvedValue([]),
+    };
+    service = new CreateCardService(
+      prisma as unknown as PrismaService,
+      findAllCardsService as FindAllCardsService,
+    );
   });
 
   it('deve criar cartão com userId autenticado', async () => {
@@ -31,6 +39,7 @@ describe('CreateCardService', () => {
         userId: 'user-1',
         name: 'Nubank',
         closingDay: 6,
+        isDefault: true,
       },
     });
   });
@@ -49,6 +58,7 @@ describe('CreateCardService', () => {
         userId: 'user-1',
         name: 'Nubank',
         closingDay: 6,
+        isDefault: true,
       },
     });
   });

@@ -139,6 +139,16 @@ A listagem de categorias deve retornar a árvore aninhada:
 
 ### Campos relevantes
 - `closingDay`: dia do mês em que a fatura do cartão **fecha** (valor entre 1 e 31).
+- `isDefault`: indica o cartão padrão do usuário.
+
+### Cartão Padrão
+- Cada usuário pode ter **somente um** cartão padrão (`isDefault = true`).
+- Quando o usuário ainda não possui cartões, o primeiro cartão criado deve ser marcado automaticamente como padrão.
+- Ao definir outro cartão como padrão, todos os demais cartões do mesmo usuário devem ser marcados como `isDefault = false`.
+- Ao deletar o cartão padrão, nenhum outro cartão deve ser promovido automaticamente; o usuário fica sem cartão padrão até definir um manualmente.
+- Nenhum usuário pode alterar ou consultar cartão padrão de outro usuário.
+- Quando um fluxo precisar de cartão e nenhum `cardId` for informado, o sistema deve usar o cartão padrão do usuário autenticado.
+- Se nenhum cartão existir para o usuário e um fluxo exigir cartão, retornar erro claro orientando o cadastro de um cartão.
 
 ### Regra de Fatura (billing)
 O dia de fechamento determina a qual fatura uma compra pertence:
@@ -160,6 +170,7 @@ Compra em 07/05  →  07 >= 06 →  fatura de Junho
 ### Restrições
 - Não é permitido deletar cartão com transações vinculadas.
 - `closingDay` deve ser validado entre 1 e 31.
+- A unicidade do cartão padrão deve ser preservada por usuário.
 
 ---
 
@@ -300,7 +311,8 @@ Se nenhum `SalaryPeriod` for encontrado para a data âncora (ex: usuário ainda 
 - `categoryId` deve pertencer ao `userId` autenticado.
 - `cardId`, se informado, deve pertencer ao `userId` autenticado.
 - `type` deve ser `CREDIT`, `DEBIT` ou `PIX`.
-- Se `type = CREDIT`, `cardId` é **obrigatório**.
+- Se `type = CREDIT`, usar o `cardId` informado; se ele não for informado, usar o cartão padrão do usuário autenticado.
+- Se `type = CREDIT` e o usuário não possuir cartão padrão, retornar erro claro solicitando cadastro ou definição de um cartão padrão.
 - Se `type = DEBIT` ou `PIX`, `cardId` deve ser **nulo**.
 
 ---
@@ -473,6 +485,10 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Deve rejeitar `closingDay` fora de 1–31.
 - Deve rejeitar delete com transações vinculadas.
 - Não deve retornar cartões de outros usuários.
+- Primeiro cartão criado para o usuário deve ser padrão.
+- Deve permitir trocar o cartão padrão do usuário autenticado.
+- Deve garantir somente um cartão padrão por usuário.
+- Deve rejeitar troca de padrão para cartão inexistente ou de outro usuário.
 
 ---
 
@@ -541,6 +557,7 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 | POST | `/cards` | Cria cartão |
 | GET | `/cards` | Lista cartões do usuário |
 | PATCH | `/cards/:id` | Atualiza nome ou closingDay |
+| PATCH | `/cards/default/:id` | Define cartão padrão do usuário |
 | DELETE | `/cards/:id` | Remove cartão (hard delete, com validações) |
 
 ### Salaries
