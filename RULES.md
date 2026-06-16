@@ -261,6 +261,27 @@ WHERE user_id = :userId
   AND reference_month = :dataAncora  -- match exato de mês/ano
 ```
 
+Se a transação for de **CRÉDITO** e ainda não existir `SalaryPeriod` para
+o mês da fatura (`billingDate`), a transação **deve ser criada mesmo assim**
+com `periodId = NULL`.
+
+Isso permite registrar compras no cartão com base no limite do cartão,
+mesmo que o salário do mês da fatura ainda não tenha sido cadastrado.
+O controle de limite do cartão fica sob responsabilidade do usuário até
+que exista uma regra explícita de limite no sistema.
+
+Quando o `SalaryPeriod` daquele mês for criado futuramente, o sistema deve
+vincular automaticamente as transações de crédito pendentes:
+
+```sql
+UPDATE transactions
+SET period_id = :periodId
+WHERE user_id = :userId
+  AND type = 'CREDIT'
+  AND period_id IS NULL
+  AND billing_date = :referenceMonth
+```
+
 **Para DÉBITO e PIX:**
 ```
 dataAncora = transaction_date
@@ -304,7 +325,14 @@ PIX em 07/05:
 ```
 
 ### Período não encontrado
-Se nenhum `SalaryPeriod` for encontrado para a data âncora (ex: usuário ainda não cadastrou nenhum salário), o serviço deve retornar erro claro solicitando que o usuário cadastre seu salário antes de registrar transações.
+Se nenhum `SalaryPeriod` for encontrado para a data âncora em transações
+de **DÉBITO** ou **PIX** (ex: usuário ainda não cadastrou nenhum salário),
+o serviço deve retornar erro claro solicitando que o usuário cadastre seu
+salário antes de registrar transações.
+
+Para transações de **CRÉDITO**, a ausência de `SalaryPeriod` para o mês da
+fatura não deve impedir o cadastro; nesse caso, `periodId` fica `NULL` até
+o período correspondente ser criado.
 
 ### Validações
 - `categoryId` deve referenciar uma **subcategoria** (`parentId IS NOT NULL`).
