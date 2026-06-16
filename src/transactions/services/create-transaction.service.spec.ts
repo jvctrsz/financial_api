@@ -223,6 +223,30 @@ describe('CreateTransactionService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('deve permitir credito sem periodo quando a fatura futura ainda nao tem salario', async () => {
+    prisma.salaryPeriod.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.createTransaction('user-1', {
+        amount: 25,
+        description: 'Mercado',
+        transactionDate: '2025-05-06',
+        categoryId: 'category-1',
+        type: TransactionType.CREDIT,
+        cardId: 'card-1',
+      }),
+    ).resolves.toMatchObject({
+      periodId: null,
+      billingDate: new Date('2025-06-01T00:00:00.000Z'),
+    });
+
+    expect(prisma.transaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        periodId: null,
+      }),
+    });
+  });
+
   it('deve rejeitar categoria raiz', async () => {
     prisma.category.findFirst.mockResolvedValue({
       id: 'category-root',

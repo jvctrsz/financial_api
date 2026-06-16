@@ -64,6 +64,18 @@ export class CreateSalaryService {
           },
         });
 
+        await tx.transaction.updateMany({
+          where: {
+            userId,
+            type: 'CREDIT',
+            periodId: null,
+            billingDate: period.referenceMonth,
+          },
+          data: {
+            periodId: period.id,
+          },
+        });
+
         return { salary, period };
       });
     } catch (error) {

@@ -9,6 +9,9 @@ export type MockPrismaService = {
     findFirst: jest.Mock;
     update: jest.Mock;
   };
+  transaction: {
+    updateMany: jest.Mock;
+  };
   $transaction: <T>(
     callback: (tx: MockPrismaService) => Promise<T>,
   ) => Promise<T>;
@@ -25,6 +28,9 @@ export const makePrisma = (): MockPrismaService => {
       create: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+    },
+    transaction: {
+      updateMany: jest.fn(),
     },
     $transaction: <T>(callback: (tx: MockPrismaService) => Promise<T>) =>
       callback(prisma),

@@ -30,7 +30,7 @@ export class CreateTransactionService {
         userId,
         categoryId: category.id,
         cardId: card?.id ?? null,
-        periodId: period.id,
+        periodId: period?.id ?? null,
         type: dto.type,
         amount: dto.amount,
         description: dto.description,
@@ -167,7 +167,7 @@ export class CreateTransactionService {
             orderBy: { startedAt: 'desc' },
           });
 
-    if (!period) {
+    if (!period && type !== TransactionType.CREDIT) {
       throw new BadRequestException(
         'Cadastre seu salário antes de registrar transações.',
       );

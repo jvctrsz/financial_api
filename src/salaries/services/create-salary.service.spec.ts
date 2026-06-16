@@ -52,6 +52,17 @@ describe('CreateSalaryService', () => {
         referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
       },
     });
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        type: 'CREDIT',
+        periodId: null,
+        billingDate: new Date('2025-05-01T00:00:00.000Z'),
+      },
+      data: {
+        periodId: 'period-1',
+      },
+    });
   });
 
   it('deve atualizar endedAt do periodo anterior ao inserir novo salario', async () => {
@@ -79,6 +90,7 @@ describe('CreateSalaryService', () => {
     prisma.salaryPeriod.create.mockResolvedValue({
       id: 'period-june',
       salaryId: salary.id,
+      referenceMonth: new Date('2025-06-01T00:00:00.000Z'),
     });
 
     await service.createSalary('user-1', {
@@ -108,6 +120,17 @@ describe('CreateSalaryService', () => {
       where: { id: 'period-may' },
       data: { endedAt: new Date('2025-06-05T00:00:00.000Z') },
     });
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        type: 'CREDIT',
+        periodId: null,
+        billingDate: new Date('2025-06-01T00:00:00.000Z'),
+      },
+      data: {
+        periodId: 'period-june',
+      },
+    });
   });
 
   it('deve inserir salario antigo entre periodos sem gerar periodo invertido', async () => {
@@ -136,6 +159,7 @@ describe('CreateSalaryService', () => {
     prisma.salaryPeriod.create.mockResolvedValue({
       id: 'period-june',
       salaryId: salary.id,
+      referenceMonth: new Date('2025-06-01T00:00:00.000Z'),
     });
 
     await service.createSalary('user-1', {

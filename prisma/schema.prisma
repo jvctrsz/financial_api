@@ -97,7 +97,7 @@ model Transaction {
   userId          String          @db.Uuid
   categoryId      String          @db.Uuid
   cardId          String?         @db.Uuid
-  periodId        String          @db.Uuid
+  periodId        String?         @db.Uuid
   fixedExpenseId  String?         @db.Uuid
   type            TransactionType
   amount          Decimal         @db.Decimal(12, 2)
@@ -109,7 +109,7 @@ model Transaction {
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   category        Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   card            Card?           @relation(fields: [cardId], references: [id], onDelete: Restrict)
-  period          SalaryPeriod    @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  period          SalaryPeriod?   @relation(fields: [periodId], references: [id], onDelete: Restrict)
 
   @@index([userId, periodId, deletedAt])
   @@index([userId, billingDate, deletedAt])
