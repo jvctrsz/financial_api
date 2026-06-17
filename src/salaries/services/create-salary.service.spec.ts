@@ -1,15 +1,25 @@
 import { ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { LinkOrphanTransactionsService } from '../../transactions/services/link-orphan-transactions.service';
 import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
 import { CreateSalaryService } from './create-salary.service';
 
 describe('CreateSalaryService', () => {
   let prisma: MockPrismaService;
+  let linkOrphanTransactionsService: {
+    linkOrphanTransactions: jest.Mock;
+  };
   let service: CreateSalaryService;
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new CreateSalaryService(prisma as unknown as PrismaService);
+    linkOrphanTransactionsService = {
+      linkOrphanTransactions: jest.fn().mockResolvedValue({ count: 0 }),
+    };
+    service = new CreateSalaryService(
+      prisma as unknown as PrismaService,
+      linkOrphanTransactionsService as unknown as LinkOrphanTransactionsService,
+    );
   });
 
   it('deve criar salario e gerar SalaryPeriod automaticamente', async () => {
@@ -52,17 +62,22 @@ describe('CreateSalaryService', () => {
         referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
       },
     });
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: {
+    expect(
+      linkOrphanTransactionsService.linkOrphanTransactions,
+    ).toHaveBeenCalledWith(
+      {
         userId: 'user-1',
-        type: 'CREDIT',
-        periodId: null,
-        billingDate: new Date('2025-05-01T00:00:00.000Z'),
-      },
-      data: {
         periodId: 'period-1',
+        referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
       },
-    });
+      prisma,
+    );
+    expect(
+      prisma.salaryPeriod.create.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      linkOrphanTransactionsService.linkOrphanTransactions.mock
+        .invocationCallOrder[0],
+    );
   });
 
   it('deve atualizar endedAt do periodo anterior ao inserir novo salario', async () => {
@@ -120,17 +135,16 @@ describe('CreateSalaryService', () => {
       where: { id: 'period-may' },
       data: { endedAt: new Date('2025-06-05T00:00:00.000Z') },
     });
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: {
+    expect(
+      linkOrphanTransactionsService.linkOrphanTransactions,
+    ).toHaveBeenCalledWith(
+      {
         userId: 'user-1',
-        type: 'CREDIT',
-        periodId: null,
-        billingDate: new Date('2025-06-01T00:00:00.000Z'),
-      },
-      data: {
         periodId: 'period-june',
+        referenceMonth: new Date('2025-06-01T00:00:00.000Z'),
       },
-    });
+      prisma,
+    );
   });
 
   it('deve inserir salario antigo entre periodos sem gerar periodo invertido', async () => {
