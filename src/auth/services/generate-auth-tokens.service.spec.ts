@@ -5,7 +5,10 @@ import { GenerateAuthTokensService } from './generate-auth-tokens.service';
 
 describe('GenerateAuthTokensService', () => {
   let jwtService: Pick<JwtService, 'signAsync'>;
-  let configService: Pick<ConfigService, 'get' | 'getOrThrow'>;
+  let configService: {
+    get: jest.Mock<string, [key: string, fallback?: string]>;
+    getOrThrow: jest.Mock<string, [key: string]>;
+  };
   let service: GenerateAuthTokensService;
 
   beforeEach(() => {
@@ -32,7 +35,7 @@ describe('GenerateAuthTokensService', () => {
     };
     service = new GenerateAuthTokensService(
       jwtService as JwtService,
-      configService as ConfigService,
+      configService as unknown as ConfigService,
     );
   });
 
