@@ -19,6 +19,7 @@ model User {
   cards                   Card[]
   categories              Category[]
   transactions            Transaction[]
+  incomes                 Income[]
 
   @@map("users")
 }
@@ -118,4 +119,19 @@ model Transaction {
   @@index([cardId])
   @@index([fixedExpenseId])
   @@map("transactions")
+}
+
+model Income {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @db.Uuid
+  amount      Decimal   @db.Decimal(10, 2)
+  description String
+  month       DateTime  @db.Date
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, month])
+  @@index([userId, deletedAt])
+  @@map("incomes")
 }
