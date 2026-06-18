@@ -20,6 +20,7 @@ model User {
   categories              Category[]
   transactions            Transaction[]
   incomes                 Income[]
+  asideExpenses           AsideExpense[]
 
   @@map("users")
 }
@@ -134,4 +135,21 @@ model Income {
   @@index([userId, month])
   @@index([userId, deletedAt])
   @@map("incomes")
+}
+
+model AsideExpense {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  userId      String    @db.Uuid
+  description String
+  amount      Decimal   @db.Decimal(12, 2)
+  recurrent   Boolean   @default(false)
+  startMonth  DateTime  @db.Date
+  endMonth    DateTime? @db.Date
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, startMonth])
+  @@map("aside_expenses")
 }
