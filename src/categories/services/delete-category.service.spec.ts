@@ -39,7 +39,7 @@ describe('DeleteCategoryService', () => {
     });
   });
 
-  it('deve fazer soft delete de subcategoria sem transacoes ativas', async () => {
+  it('deve fazer soft delete de subcategoria sem transações ativas', async () => {
     const category = {
       id: 'category-2',
       userId: 'user-1',
@@ -151,7 +151,7 @@ describe('DeleteCategoryService', () => {
     });
   });
 
-  it('deve rejeitar delete de subcategoria com transacoes ativas', async () => {
+  it('deve rejeitar delete de subcategoria com transações ativas', async () => {
     prisma.category.findFirst.mockResolvedValue({
       id: 'category-2',
       userId: 'user-1',
@@ -176,7 +176,7 @@ describe('DeleteCategoryService', () => {
     expect(prisma.category.update).not.toHaveBeenCalled();
   });
 
-  it('deve fazer soft delete de subcategoria com apenas transacoes soft-deletadas', async () => {
+  it('deve fazer soft delete de subcategoria com apenas transações soft-deletadas', async () => {
     const category = {
       id: 'category-2',
       userId: 'user-1',

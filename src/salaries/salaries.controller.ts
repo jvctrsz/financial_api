@@ -1,8 +1,18 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { Request } from 'express';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { CreateSalaryDto } from './dto/create-salary.dto';
 import { CreateSalaryService } from './services/create-salary.service';
+import { DeleteSalaryService } from './services/delete-salary.service';
 import { FindAllSalariesService } from './services/find-all-salaries.service';
 import { FindCurrentSalaryService } from './services/find-current-salary.service';
 
@@ -18,6 +28,7 @@ type AuthenticatedRequest = Request & {
 export class SalariesController {
   constructor(
     private readonly createSalaryService: CreateSalaryService,
+    private readonly deleteSalaryService: DeleteSalaryService,
     private readonly findAllSalariesService: FindAllSalariesService,
     private readonly findCurrentSalaryService: FindCurrentSalaryService,
   ) {}
@@ -35,5 +46,10 @@ export class SalariesController {
   @Get('current')
   findCurrent(@Req() request: AuthenticatedRequest) {
     return this.findCurrentSalaryService.findCurrentSalary(request.user.id);
+  }
+
+  @Delete(':id')
+  delete(@Req() request: AuthenticatedRequest, @Param('id') salaryId: string) {
+    return this.deleteSalaryService.deleteSalary(request.user.id, salaryId);
   }
 }

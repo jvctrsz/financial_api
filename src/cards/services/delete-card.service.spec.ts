@@ -48,7 +48,7 @@ describe('DeleteCardService', () => {
     });
   });
 
-  it('deve rejeitar delete de cartao com transacoes vinculadas', async () => {
+  it('deve rejeitar delete de cartao com transações vinculadas', async () => {
     prisma.card.findFirst.mockResolvedValue({ id: 'card-1', userId: 'user-1' });
     prisma.transaction.findFirst.mockResolvedValue({ id: 'transaction-1' });
 

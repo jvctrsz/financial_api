@@ -261,6 +261,50 @@ WHERE user_id = :userId
 
 > **Decisão (ponto 1):** transações de crédito podem ser criadas com `periodId = NULL` quando o `SalaryPeriod` do mês da fatura ainda não existe. A ausência de período nunca impede o cadastro de transações de crédito. O vínculo é feito automaticamente pelo `LinkOrphanTransactionsService` quando o salário correspondente for cadastrado.
 
+### Remoção do Salário Mais Recente (Correção de Erro de Cadastro)
+
+Diferente da regra geral de imutabilidade, o **salário mais recente** cadastrado pelo usuário pode ser removido. O objetivo é permitir corrigir erros de digitação (data ou valor errados) sem deixar o usuário permanentemente preso a um cadastro incorreto.
+
+**Definição de "mais recente":** o `Salary` cujo `SalaryPeriod` correspondente tem `endedAt = NULL`. Não é permitido deletar nenhum outro salário do histórico — apenas o último.
+
+**Esse delete é HARD DELETE**, diferente do padrão de soft delete usado no resto do sistema. A justificativa é que aqui não se trata de um evento real que precisa ficar no histórico, e sim de desfazer um cadastro que nunca deveria ter existido.
+
+**Validações antes de permitir a remoção:**
+
+1. O salário deve ser o mais recente do usuário (`endedAt IS NULL` no `SalaryPeriod` correspondente).
+2. Buscar transações de `DEBIT` ou `PIX` vinculadas a esse `periodId`. Se existir **qualquer uma**, **bloquear a remoção** com erro claro orientando o usuário a remover (soft delete) essas transações antes. `DEBIT` e `PIX` nunca podem ficar com `periodId = NULL` — não existe estado órfão permitido para esses tipos.
+3. Transações de `CREDIT` vinculadas **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo).
+
+**Fluxo de remoção — `DeleteSalaryService`:**
+
+```
+1. Validar que o salário é o mais recente (endedAt do período = NULL)
+2. Buscar transações DEBIT/PIX vinculadas ao periodId
+   → Se existir alguma, lançar erro e abortar (nenhuma alteração é feita)
+3. Chamar UnlinkOrphanTransactionsService(periodId) — desvincula as transações
+   de CREDIT vinculadas a esse período, voltando periodId para NULL
+4. Deletar o SalaryPeriod (hard delete)
+5. Deletar o Salary (hard delete)
+6. Reabrir o período anterior: setar endedAt = NULL nele
+```
+
+**`UnlinkOrphanTransactionsService`** — service dedicado, espelha exatamente o comportamento inverso do `LinkOrphanTransactionsService` (seção 6). Responsabilidade única:
+
+```sql
+UPDATE transactions
+SET period_id = NULL
+WHERE period_id = :periodId
+  AND type = 'CREDIT'
+```
+
+> **Decisão:** bloquear a remoção sempre que houvesse qualquer transação vinculada tornaria o recurso inútil na prática, já que o `LinkOrphanTransactionsService` vincula transações de crédito automaticamente assim que o `SalaryPeriod` é criado. A única forma de corrigir um salário recém-criado por erro é desfazer esse vínculo automaticamente antes do delete — exceto para `DEBIT`/`PIX`, que dependem obrigatoriamente de um período válido e por isso bloqueiam a operação.
+
+**Endpoint:**
+
+| Método | Rota            | Descrição                                                               |
+| ------ | --------------- | ----------------------------------------------------------------------- |
+| DELETE | `/salaries/:id` | Remove o salário mais recente (hard delete) e reabre o período anterior |
+
 ### Fallback de Salário
 
 Ao consultar o salário vigente para uma data X:
@@ -274,6 +318,41 @@ LIMIT 1
 ```
 
 Se nenhum salário for encontrado, retornar erro indicando que nenhum salário foi cadastrado.
+
+### Remoção do Salário Mais Recente (correção de erro de cadastro)
+
+Diferente da regra geral de imutabilidade, o sistema **permite deletar o salário mais recente** cadastrado pelo usuário, para corrigir erros de digitação (data ou valor incorretos) sem deixar o histórico permanentemente inconsistente.
+
+**Restrição de elegibilidade:**
+
+- Só é permitido deletar o salário cujo `SalaryPeriod` correspondente tenha `endedAt = NULL` (ou seja, o período mais recente, ainda em andamento).
+- Não é possível deletar salários intermediários ou antigos do histórico.
+
+**Validação de bloqueio:**
+
+- Se existir qualquer transação de `DEBIT` ou `PIX` vinculada a esse `SalaryPeriod`, o delete deve ser **rejeitado**. Débito e PIX nunca podem ficar com `periodId = NULL`, então não há como desfazer esse vínculo sem violar a regra de período obrigatório desses tipos. Nesse caso, o usuário deve primeiro soft-deletar essas transações antes de poder remover o salário.
+- Transações de `CREDIT` vinculadas **não bloqueiam** o delete — elas são desvinculadas automaticamente (ver abaixo).
+
+**Fluxo do `DeleteSalaryService`, em ordem:**
+
+```
+1. Validar que o salário pertence ao userId autenticado.
+2. Validar que é o salário mais recente (SalaryPeriod.endedAt = NULL).
+3. Verificar se existe transação DEBIT ou PIX vinculada ao periodId:
+   → Se existir, rejeitar com erro claro.
+4. Desvincular transações CREDIT vinculadas a esse periodId (UnlinkOrphanTransactionsService):
+   UPDATE transactions
+   SET period_id = NULL
+   WHERE period_id = :periodId
+     AND type = 'CREDIT'
+5. Hard delete do SalaryPeriod.
+6. Hard delete do Salary.
+7. Reabrir o período anterior: setar endedAt = NULL nele.
+```
+
+> **Decisão:** este é um **hard delete**, não soft delete — diferente do restante do sistema. A razão é conceitual: isso não é uma transação que aconteceu e precisa permanecer no histórico, é a correção de um erro de cadastro que nunca deveria ter existido. Manter soft delete aqui obrigaria o sistema a sempre ignorar um salário "fantasma" em todas as queries de fallback e período vigente, adicionando complexidade sem benefício real.
+
+> **`UnlinkOrphanTransactionsService`** é o inverso simétrico do `LinkOrphanTransactionsService` (ver acima). Sua única responsabilidade é devolver `periodId = NULL` para transações de crédito antes do período ser removido, permitindo que elas sejam religadas automaticamente quando o usuário cadastrar o salário correto.
 
 ### Comportamento antes do pagamento
 
@@ -523,6 +602,31 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Não deve afetar transações de `DEBIT` ou `PIX`.
 - Não deve afetar transações com `periodId` já preenchido.
 
+**`DeleteSalaryService`**
+
+- Deve permitir remover apenas o salário mais recente (`endedAt IS NULL` no período).
+- Deve rejeitar remoção se existir salário mais recente que o informado.
+- Deve bloquear remoção se existir transação `DEBIT` ou `PIX` vinculada ao período.
+- Deve desvincular (periodId = NULL) transações `CREDIT` vinculadas ao período antes de deletar.
+- Deve deletar o `SalaryPeriod` e o `Salary` (hard delete).
+- Deve reabrir o período anterior (`endedAt = NULL`) após a remoção.
+
+**`UnlinkOrphanTransactionsService`**
+
+- Deve voltar `periodId` para `NULL` em todas as transações `CREDIT` vinculadas ao período informado.
+- Não deve afetar transações de `DEBIT` ou `PIX`.
+- Não deve afetar transações de outros períodos.
+
+**`DeleteSalaryService`**
+
+- Deve permitir deletar o salário mais recente (período com `endedAt = NULL`).
+- Deve rejeitar delete de salário que não seja o mais recente.
+- Deve rejeitar delete se existir transação `DEBIT` ou `PIX` vinculada ao período.
+- Deve desvincular (periodId = NULL) transações `CREDIT` vinculadas ao período antes de deletar.
+- Deve reabrir o período anterior (`endedAt = NULL`) após o delete.
+- Deve fazer hard delete do `Salary` e do `SalaryPeriod`.
+- Não deve permitir deletar salário de outro usuário.
+
 **`TransactionService` — regra de `billingDate`**
 
 - CRÉDITO, dia < closingDay → billingDate = 1º dia do mês corrente.
@@ -668,11 +772,13 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 
 ### Salaries
 
-| Método | Rota                | Descrição                                  |
-| ------ | ------------------- | ------------------------------------------ |
-| POST   | `/salaries`         | Registra salário e gera período financeiro |
-| GET    | `/salaries`         | Lista histórico de salários                |
-| GET    | `/salaries/current` | Retorna salário vigente hoje               |
+| Método | Rota                | Descrição                                                               |
+| ------ | ------------------- | ----------------------------------------------------------------------- |
+| POST   | `/salaries`         | Registra salário e gera período financeiro                              |
+| GET    | `/salaries`         | Lista histórico de salários                                             |
+| GET    | `/salaries/current` | Retorna salário vigente hoje                                            |
+| DELETE | `/salaries/:id`     | Remove o salário mais recente (hard delete) e reabre o período anterior |
+| DELETE | `/salaries/:id`     | Remove o salário mais recente (hard delete, com validações)             |
 
 ### Incomes
 
