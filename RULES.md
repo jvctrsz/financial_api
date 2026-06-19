@@ -111,8 +111,8 @@ Decisão de arquitetura para evitar duplicação de lógica:
 
 ### Preferências do Usuário
 
-- O campo `includeIncomesInBalance` (boolean, default `false`) controla se as entradas mensais entram no cálculo do saldo disponível.
-- Esse campo é atualizado via `PATCH /users/me/preferences`.
+- O campo `includeIncomesInBalance` foi **removido** do model `User`. O controle de se uma entrada impacta o saldo é feito individualmente em cada `Income` via campo `includeInBalance` — ver seção 9.
+- O endpoint `PATCH /users/me/preferences` foi **removido**. Não há mais preferências globais relacionadas a entradas.
 
 ### Senha
 
@@ -510,11 +510,16 @@ Ao fazer soft delete em um `FixedExpense`:
 
 ## 9. Entradas Mensais
 
-- Entradas mensais representam receitas extras (freelance, aluguel recebido, etc.).
-- **Não entram no cálculo de saldo por padrão.**
-- Só são incluídas no cálculo quando `User.includeIncomesInBalance = true`.
+- Entradas mensais representam receitas extras (freelance, aluguel recebido, reembolsos de amigos, etc.).
+- Cada entrada possui o campo `includeInBalance` (boolean, **default `false`**) que controla individualmente se ela entra no cálculo do saldo disponível.
+- **Não impactam o saldo por padrão** — o usuário decide conscientemente, por entrada, se aquele valor deve ser abatido do saldo.
+- Isso preserva rastreabilidade: o gasto original fica registrado pelo valor total, e a entrada registra o reembolso separadamente, sem perder o histórico de nenhum dos dois.
 - O campo `month` armazena sempre o primeiro dia do mês de referência (ex: `2025-05-01`).
 - Soft delete via `deletedAt`.
+- O `POST /incomes` aceita `includeInBalance` no body.
+- O `GET /incomes` retorna `includeInBalance` para exibição no frontend.
+
+> **Decisão:** o campo global `User.includeIncomesInBalance` foi removido. O controle por entrada é mais granular e consistente com o princípio do sistema de que nada impacta o saldo sem intenção explícita do usuário.
 
 ---
 
@@ -547,7 +552,7 @@ Um AsideExpense é ativo em um período P se:
 ```
 Saldo Disponível do Período P =
     Salary.amount (do período P)
-  + SUM(incomes do período P)        [somente se includeIncomesInBalance = true]
+  + SUM(incomes do período P onde includeInBalance = true e deletedAt IS NULL)
   - SUM(transactions do período P onde deletedAt IS NULL)
   - SUM(asideExpenses ativos no período P onde deletedAt IS NULL)
 ```
@@ -746,11 +751,10 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 
 ### Users
 
-| Método | Rota                    | Descrição                          |
-| ------ | ----------------------- | ---------------------------------- |
-| GET    | `/users/me`             | Retorna perfil (sem passwordHash)  |
-| PATCH  | `/users/me`             | Atualiza nome, email ou senha      |
-| PATCH  | `/users/me/preferences` | Atualiza `includeIncomesInBalance` |
+| Método | Rota        | Descrição                         |
+| ------ | ----------- | --------------------------------- |
+| GET    | `/users/me` | Retorna perfil (sem passwordHash) |
+| PATCH  | `/users/me` | Atualiza nome, email ou senha     |
 
 ### Categories
 
