@@ -12,8 +12,8 @@ describe('FindIncomesByMonthService', () => {
     service = new FindIncomesByMonthService(prisma as unknown as PrismaService);
   });
 
-  it('deve listar entradas do mes informado', async () => {
-    const incomes = [{ id: 'income-1' }];
+  it('deve listar entradas do mes informado retornando includeInBalance', async () => {
+    const incomes = [{ id: 'income-1', includeInBalance: true }];
 
     prisma.income.findMany.mockResolvedValue(incomes);
 

@@ -1,4 +1,12 @@
-import { IsDateString, IsNotEmpty, IsNumber, IsString, Min } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class CreateIncomeDto {
   @IsNumber()
@@ -11,4 +19,8 @@ export class CreateIncomeDto {
 
   @IsDateString()
   month: string;
+
+  @IsOptional()
+  @IsBoolean()
+  includeInBalance?: boolean;
 }

@@ -18,6 +18,7 @@ describe('CreateIncomeService', () => {
       amount: 500,
       description: 'Freelance landing page',
       month: new Date('2025-06-01T00:00:00.000Z'),
+      includeInBalance: false,
       deletedAt: null,
     };
 
@@ -28,6 +29,7 @@ describe('CreateIncomeService', () => {
         amount: 500,
         description: 'Freelance landing page',
         month: '2025-06-15',
+        includeInBalance: false,
       }),
     ).resolves.toBe(income);
 
@@ -37,6 +39,7 @@ describe('CreateIncomeService', () => {
         amount: 500,
         description: 'Freelance landing page',
         month: new Date('2025-06-01T00:00:00.000Z'),
+        includeInBalance: false,
       },
     });
   });
@@ -53,11 +56,12 @@ describe('CreateIncomeService', () => {
     expect(prisma.income.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         month: new Date('2025-06-01T00:00:00.000Z'),
+        includeInBalance: false,
       }),
     });
   });
 
-  it('deve criar entrada com amount, description e month corretos', async () => {
+  it('deve criar entrada com includeInBalance false quando o campo nao for enviado', async () => {
     prisma.income.create.mockResolvedValue({ id: 'income-1' });
 
     await service.createIncome('user-1', {
@@ -72,6 +76,49 @@ describe('CreateIncomeService', () => {
         amount: 1250.5,
         description: 'Aluguel recebido',
         month: new Date('2025-07-01T00:00:00.000Z'),
+        includeInBalance: false,
+      },
+    });
+  });
+
+  it('deve criar entrada com includeInBalance true quando enviado true', async () => {
+    prisma.income.create.mockResolvedValue({ id: 'income-1' });
+
+    await service.createIncome('user-1', {
+      amount: 120,
+      description: 'Reembolso mercado',
+      month: '2025-05',
+      includeInBalance: true,
+    });
+
+    expect(prisma.income.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        amount: 120,
+        description: 'Reembolso mercado',
+        month: new Date('2025-05-01T00:00:00.000Z'),
+        includeInBalance: true,
+      },
+    });
+  });
+
+  it('deve criar entrada com includeInBalance false quando enviado false', async () => {
+    prisma.income.create.mockResolvedValue({ id: 'income-1' });
+
+    await service.createIncome('user-1', {
+      amount: 300,
+      description: 'Freela',
+      month: '2025-05',
+      includeInBalance: false,
+    });
+
+    expect(prisma.income.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        amount: 300,
+        description: 'Freela',
+        month: new Date('2025-05-01T00:00:00.000Z'),
+        includeInBalance: false,
       },
     });
   });
@@ -80,9 +127,9 @@ describe('CreateIncomeService', () => {
     prisma.income.create.mockResolvedValue({ id: 'income-1' });
 
     await service.createIncome('user-1', {
-      amount: 300,
-      description: 'Bonus',
-      month: '2025-08-10',
+        amount: 300,
+        description: 'Bonus',
+        month: '2025-08-10',
     });
 
     expect(prisma.salary?.findFirst).not.toHaveBeenCalled();

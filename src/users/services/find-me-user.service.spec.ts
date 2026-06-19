@@ -18,7 +18,6 @@ describe('FindMeUserService', () => {
       id: 'user-1',
       name: 'Joao',
       email: 'joao@example.com',
-      includeIncomesInBalance: false,
       createdAt: new Date('2026-06-17T00:00:00.000Z'),
     };
 
@@ -37,7 +36,6 @@ describe('FindMeUserService', () => {
       id: 'user-1',
       name: 'Joao',
       email: 'joao@example.com',
-      includeIncomesInBalance: false,
       createdAt: new Date('2026-06-17T00:00:00.000Z'),
     };
 
@@ -47,7 +45,6 @@ describe('FindMeUserService', () => {
       id: 'user-1',
       name: 'Joao',
       email: 'joao@example.com',
-      includeIncomesInBalance: false,
       createdAt: new Date('2026-06-17T00:00:00.000Z'),
     });
   });
@@ -57,7 +54,6 @@ describe('FindMeUserService', () => {
       id: 'user-1',
       name: 'Joao',
       email: 'joao@example.com',
-      includeIncomesInBalance: false,
       createdAt: new Date('2026-06-17T00:00:00.000Z'),
     };
 
@@ -70,6 +66,28 @@ describe('FindMeUserService', () => {
       where: { id: 'user-1' },
       select: expect.not.objectContaining({
         passwordHash: true,
+      }),
+    });
+  });
+
+  it('não deve retornar preferencia global de entradas', async () => {
+    const removedPreferenceField = ['include', 'Incomes', 'InBalance'].join('');
+    const user = {
+      id: 'user-1',
+      name: 'Joao',
+      email: 'joao@example.com',
+      createdAt: new Date('2026-06-17T00:00:00.000Z'),
+    };
+
+    prisma.user.findUnique.mockResolvedValue(user);
+
+    const result = await service.findMe('user-1');
+
+    expect(result).not.toHaveProperty(removedPreferenceField);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      select: expect.not.objectContaining({
+        [removedPreferenceField]: true,
       }),
     });
   });

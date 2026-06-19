@@ -1,12 +1,8 @@
-import { UpdateUserPreferencesDto } from './dto/update-user-preferences.dto';
 import { UsersController } from './users.controller';
 
 describe('UsersController', () => {
   let findMeUserService: {
     findMe: jest.Mock;
-  };
-  let updateUserPreferencesService: {
-    updatePreferences: jest.Mock;
   };
   let controller: UsersController;
 
@@ -21,13 +17,7 @@ describe('UsersController', () => {
     findMeUserService = {
       findMe: jest.fn(),
     };
-    updateUserPreferencesService = {
-      updatePreferences: jest.fn(),
-    };
-    controller = new UsersController(
-      findMeUserService as never,
-      updateUserPreferencesService as never,
-    );
+    controller = new UsersController(findMeUserService as never);
   });
 
   it('deve chamar FindMeUserService.findMe no GET /users/me', () => {
@@ -39,17 +29,7 @@ describe('UsersController', () => {
     expect(findMeUserService.findMe).toHaveBeenCalledWith('user-1');
   });
 
-  it('deve chamar UpdateUserPreferencesService.updatePreferences no PATCH /users/me/preferences', () => {
-    const dto: UpdateUserPreferencesDto = {
-      includeIncomesInBalance: true,
-    };
-    const user = { id: 'user-1', includeIncomesInBalance: true };
-
-    updateUserPreferencesService.updatePreferences.mockReturnValue(user);
-
-    expect(controller.updatePreferences(request, dto)).toBe(user);
-    expect(
-      updateUserPreferencesService.updatePreferences,
-    ).toHaveBeenCalledWith('user-1', true);
+  it('não deve expor metodo de preferencias globais', () => {
+    expect(controller).not.toHaveProperty('updatePreferences');
   });
 });

@@ -7,20 +7,19 @@ datasource db {
 }
 
 model User {
-  id                      String         @id @default(uuid(7)) @db.Uuid
-  name                    String
-  email                   String         @unique
-  passwordHash            String
-  includeIncomesInBalance Boolean        @default(false)
-  createdAt               DateTime       @default(now())
-  updatedAt               DateTime       @updatedAt
-  salaries                Salary[]
-  salaryPeriods           SalaryPeriod[]
-  cards                   Card[]
-  categories              Category[]
-  transactions            Transaction[]
-  incomes                 Income[]
-  asideExpenses           AsideExpense[]
+  id            String         @id @default(uuid(7)) @db.Uuid
+  name          String
+  email         String         @unique
+  passwordHash  String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  salaries      Salary[]
+  salaryPeriods SalaryPeriod[]
+  cards         Card[]
+  categories    Category[]
+  transactions  Transaction[]
+  incomes       Income[]
+  asideExpenses AsideExpense[]
 
   @@map("users")
 }
@@ -123,14 +122,15 @@ model Transaction {
 }
 
 model Income {
-  id          String    @id @default(uuid(7)) @db.Uuid
-  userId      String    @db.Uuid
-  amount      Decimal   @db.Decimal(10, 2)
-  description String
-  month       DateTime  @db.Date
-  createdAt   DateTime  @default(now())
-  deletedAt   DateTime?
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(uuid(7)) @db.Uuid
+  userId           String    @db.Uuid
+  amount           Decimal   @db.Decimal(10, 2)
+  description      String
+  month            DateTime  @db.Date
+  includeInBalance Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  deletedAt        DateTime?
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, month])
   @@index([userId, deletedAt])

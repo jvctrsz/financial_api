@@ -16,6 +16,7 @@ export class CreateIncomeService {
         amount: dto.amount,
         description: dto.description,
         month,
+        includeInBalance: dto.includeInBalance ?? false,
       },
     });
   };
