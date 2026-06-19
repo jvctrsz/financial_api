@@ -1,6 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { LinkOrphanTransactionsService } from '../../transactions/services/link-orphan-transactions.service';
+import { LinkOrphanInstallmentsService } from '../../transactions/services/link-orphan-installments.service';
 import { CreateSalaryDto } from '../dto/create-salary.dto';
 import {
   firstDayOfUtcMonth,
@@ -13,7 +13,7 @@ import { isUniqueConstraintError } from '../utils/prisma-error.util';
 export class CreateSalaryService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly linkOrphanTransactionsService: LinkOrphanTransactionsService,
+    private readonly linkOrphanInstallmentsService: LinkOrphanInstallmentsService,
   ) {}
 
   createSalary = async (userId: string, dto: CreateSalaryDto) => {
@@ -68,7 +68,7 @@ export class CreateSalaryService {
           },
         });
 
-        await this.linkOrphanTransactionsService.linkOrphanTransactions(
+        await this.linkOrphanInstallmentsService.linkOrphanInstallments(
           {
             userId,
             periodId: period.id,

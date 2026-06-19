@@ -1,14 +1,14 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { TransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { UnlinkOrphanTransactionsService } from '../../transactions/services/unlink-orphan-transactions.service';
+import { UnlinkOrphanInstallmentsService } from '../../transactions/services/unlink-orphan-installments.service';
 import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
 import { DeleteSalaryService } from './delete-salary.service';
 
 describe('DeleteSalaryService', () => {
   let prisma: MockPrismaService;
-  let unlinkOrphanTransactionsService: {
-    unlinkOrphanTransactions: jest.Mock;
+  let unlinkOrphanInstallmentsService: {
+    unlinkOrphanInstallments: jest.Mock;
   };
   let service: DeleteSalaryService;
 
@@ -39,12 +39,12 @@ describe('DeleteSalaryService', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    unlinkOrphanTransactionsService = {
-      unlinkOrphanTransactions: jest.fn().mockResolvedValue({ count: 0 }),
+    unlinkOrphanInstallmentsService = {
+      unlinkOrphanInstallments: jest.fn().mockResolvedValue({ count: 0 }),
     };
     service = new DeleteSalaryService(
       prisma as unknown as PrismaService,
-      unlinkOrphanTransactionsService as unknown as UnlinkOrphanTransactionsService,
+      unlinkOrphanInstallmentsService as unknown as UnlinkOrphanInstallmentsService,
     );
 
     prisma.salary.findFirst.mockResolvedValue(salary);
@@ -87,7 +87,7 @@ describe('DeleteSalaryService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
 
     expect(
-      unlinkOrphanTransactionsService.unlinkOrphanTransactions,
+      unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
     ).not.toHaveBeenCalled();
     expect(prisma.salaryPeriod.delete).not.toHaveBeenCalled();
     expect(prisma.salary.delete).not.toHaveBeenCalled();
@@ -120,16 +120,20 @@ describe('DeleteSalaryService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(
-      unlinkOrphanTransactionsService.unlinkOrphanTransactions,
+      unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
     ).not.toHaveBeenCalled();
     expect(prisma.salaryPeriod.delete).not.toHaveBeenCalled();
     expect(prisma.salary.delete).not.toHaveBeenCalled();
   });
 
-  it('deve bloquear delete se existir transção DEBIT vinculada ao periodo', async () => {
+  it.each([
+    TransactionType.CREDIT,
+    TransactionType.DEBIT,
+    TransactionType.PIX,
+  ])('deve bloquear delete se existir transação comum %s vinculada ao periodo', async (type) => {
     prisma.transaction.findFirst.mockResolvedValue({
-      id: 'transaction-debit',
-      type: TransactionType.DEBIT,
+      id: `transaction-${type.toLowerCase()}`,
+      type,
     });
 
     await expect(
@@ -139,8 +143,13 @@ describe('DeleteSalaryService', () => {
     expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
       where: {
         periodId: 'period-june',
+        fixedExpenseId: null,
         type: {
-          in: [TransactionType.DEBIT, TransactionType.PIX],
+          in: [
+            TransactionType.CREDIT,
+            TransactionType.DEBIT,
+            TransactionType.PIX,
+          ],
         },
       },
       select: {
@@ -148,34 +157,17 @@ describe('DeleteSalaryService', () => {
       },
     });
     expect(
-      unlinkOrphanTransactionsService.unlinkOrphanTransactions,
+      unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
     ).not.toHaveBeenCalled();
     expect(prisma.salaryPeriod.delete).not.toHaveBeenCalled();
     expect(prisma.salary.delete).not.toHaveBeenCalled();
   });
 
-  it('deve bloquear delete se existir transção PIX vinculada ao periodo', async () => {
-    prisma.transaction.findFirst.mockResolvedValue({
-      id: 'transaction-pix',
-      type: TransactionType.PIX,
-    });
-
-    await expect(
-      service.deleteSalary('user-1', 'salary-june'),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(
-      unlinkOrphanTransactionsService.unlinkOrphanTransactions,
-    ).not.toHaveBeenCalled();
-    expect(prisma.salaryPeriod.delete).not.toHaveBeenCalled();
-    expect(prisma.salary.delete).not.toHaveBeenCalled();
-  });
-
-  it('deve desvincular transações CREDIT antes de deletar', async () => {
+  it('deve desvincular apenas parcelas antes de deletar', async () => {
     await service.deleteSalary('user-1', 'salary-june');
 
     expect(
-      unlinkOrphanTransactionsService.unlinkOrphanTransactions,
+      unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
     ).toHaveBeenCalledWith(
       {
         periodId: 'period-june',
@@ -183,7 +175,7 @@ describe('DeleteSalaryService', () => {
       prisma,
     );
     expect(
-      unlinkOrphanTransactionsService.unlinkOrphanTransactions.mock
+      unlinkOrphanInstallmentsService.unlinkOrphanInstallments.mock
         .invocationCallOrder[0],
     ).toBeLessThan(prisma.salaryPeriod.delete.mock.invocationCallOrder[0]);
   });

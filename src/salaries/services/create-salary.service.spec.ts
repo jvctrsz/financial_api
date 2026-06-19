@@ -1,24 +1,24 @@
 import { ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { LinkOrphanTransactionsService } from '../../transactions/services/link-orphan-transactions.service';
+import { LinkOrphanInstallmentsService } from '../../transactions/services/link-orphan-installments.service';
 import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
 import { CreateSalaryService } from './create-salary.service';
 
 describe('CreateSalaryService', () => {
   let prisma: MockPrismaService;
-  let linkOrphanTransactionsService: {
-    linkOrphanTransactions: jest.Mock;
+  let linkOrphanInstallmentsService: {
+    linkOrphanInstallments: jest.Mock;
   };
   let service: CreateSalaryService;
 
   beforeEach(() => {
     prisma = makePrisma();
-    linkOrphanTransactionsService = {
-      linkOrphanTransactions: jest.fn().mockResolvedValue({ count: 0 }),
+    linkOrphanInstallmentsService = {
+      linkOrphanInstallments: jest.fn().mockResolvedValue({ count: 0 }),
     };
     service = new CreateSalaryService(
       prisma as unknown as PrismaService,
-      linkOrphanTransactionsService as unknown as LinkOrphanTransactionsService,
+      linkOrphanInstallmentsService as unknown as LinkOrphanInstallmentsService,
     );
   });
 
@@ -63,7 +63,7 @@ describe('CreateSalaryService', () => {
       },
     });
     expect(
-      linkOrphanTransactionsService.linkOrphanTransactions,
+      linkOrphanInstallmentsService.linkOrphanInstallments,
     ).toHaveBeenCalledWith(
       {
         userId: 'user-1',
@@ -75,7 +75,7 @@ describe('CreateSalaryService', () => {
     expect(
       prisma.salaryPeriod.create.mock.invocationCallOrder[0],
     ).toBeLessThan(
-      linkOrphanTransactionsService.linkOrphanTransactions.mock
+      linkOrphanInstallmentsService.linkOrphanInstallments.mock
         .invocationCallOrder[0],
     );
   });
@@ -136,7 +136,7 @@ describe('CreateSalaryService', () => {
       data: { endedAt: new Date('2025-06-05T00:00:00.000Z') },
     });
     expect(
-      linkOrphanTransactionsService.linkOrphanTransactions,
+      linkOrphanInstallmentsService.linkOrphanInstallments,
     ).toHaveBeenCalledWith(
       {
         userId: 'user-1',

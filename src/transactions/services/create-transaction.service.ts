@@ -20,17 +20,14 @@ export class CreateTransactionService {
       dto.type,
       card,
     );
-    const period = await this.resolvePeriod(userId, dto.type, {
-      billingDate,
-      transactionDate,
-    });
+    const period = await this.resolvePeriod(userId, transactionDate);
 
     return this.prisma.transaction.create({
       data: {
         userId,
         categoryId: category.id,
         cardId: card?.id ?? null,
-        periodId: period?.id ?? null,
+        periodId: period.id,
         type: dto.type,
         amount: dto.amount,
         description: dto.description,
@@ -132,43 +129,28 @@ export class CreateTransactionService {
     );
   };
 
-  private resolvePeriod = async (
-    userId: string,
-    type: TransactionType,
-    dates: {
-      billingDate: Date;
-      transactionDate: Date;
-    },
-  ) => {
-    const period =
-      type === TransactionType.CREDIT
-        ? await this.prisma.salaryPeriod.findFirst({
-            where: {
-              userId,
-              referenceMonth: dates.billingDate,
+  private resolvePeriod = async (userId: string, transactionDate: Date) => {
+    const period = await this.prisma.salaryPeriod.findFirst({
+      where: {
+        userId,
+        startedAt: {
+          lte: transactionDate,
+        },
+        OR: [
+          {
+            endedAt: {
+              gte: transactionDate,
             },
-          })
-        : await this.prisma.salaryPeriod.findFirst({
-            where: {
-              userId,
-              startedAt: {
-                lte: dates.transactionDate,
-              },
-              OR: [
-                {
-                  endedAt: {
-                    gte: dates.transactionDate,
-                  },
-                },
-                {
-                  endedAt: null,
-                },
-              ],
-            },
-            orderBy: { startedAt: 'desc' },
-          });
+          },
+          {
+            endedAt: null,
+          },
+        ],
+      },
+      orderBy: { startedAt: 'desc' },
+    });
 
-    if (!period && type !== TransactionType.CREDIT) {
+    if (!period) {
       throw new BadRequestException(
         'Cadastre seu salário antes de registrar transações.',
       );

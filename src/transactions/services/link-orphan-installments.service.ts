@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, TransactionType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
-type LinkOrphanTransactionsParams = {
+type LinkOrphanInstallmentsParams = {
   userId: string;
   periodId: string;
   referenceMonth: Date;
@@ -11,11 +11,11 @@ type LinkOrphanTransactionsParams = {
 type PrismaTransactionClient = PrismaService | Prisma.TransactionClient;
 
 @Injectable()
-export class LinkOrphanTransactionsService {
+export class LinkOrphanInstallmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  linkOrphanTransactions = async (
-    params: LinkOrphanTransactionsParams,
+  linkOrphanInstallments = async (
+    params: LinkOrphanInstallmentsParams,
     prismaClient: PrismaTransactionClient = this.prisma,
   ) => {
     const { userId, periodId, referenceMonth } = params;
@@ -23,7 +23,9 @@ export class LinkOrphanTransactionsService {
     return prismaClient.transaction.updateMany({
       where: {
         userId,
-        type: TransactionType.CREDIT,
+        fixedExpenseId: {
+          not: null,
+        },
         periodId: null,
         billingDate: referenceMonth,
       },

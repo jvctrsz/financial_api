@@ -99,11 +99,10 @@ describe('CreateTransactionService', () => {
       cardId: 'card-1',
     });
 
-    expect(prisma.salaryPeriod.findFirst).toHaveBeenCalledWith({
-      where: {
-        userId: 'user-1',
-        referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
-      },
+    expect(prisma.transaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        billingDate: new Date('2025-05-01T00:00:00.000Z'),
+      }),
     });
   });
 
@@ -179,25 +178,26 @@ describe('CreateTransactionService', () => {
     });
   });
 
-  it('deve buscar periodo por intervalo para pix', async () => {
+  it('deve buscar periodo por intervalo para crédito usando transactionDate, não billingDate', async () => {
     await service.createTransaction('user-1', {
       amount: 25,
       description: 'Mercado',
-      transactionDate: '2025-05-07',
+      transactionDate: '2025-05-16',
       categoryId: 'category-1',
-      type: TransactionType.PIX,
+      type: TransactionType.CREDIT,
+      cardId: 'card-1',
     });
 
     expect(prisma.salaryPeriod.findFirst).toHaveBeenCalledWith({
       where: {
         userId: 'user-1',
         startedAt: {
-          lte: new Date('2025-05-07T00:00:00.000Z'),
+          lte: new Date('2025-05-16T00:00:00.000Z'),
         },
         OR: [
           {
             endedAt: {
-              gte: new Date('2025-05-07T00:00:00.000Z'),
+              gte: new Date('2025-05-16T00:00:00.000Z'),
             },
           },
           {
@@ -209,7 +209,114 @@ describe('CreateTransactionService', () => {
     });
   });
 
-  it('deve rejeitar quando periodo não existir', async () => {
+  it('deve debitar crédito após fechamento no periodo vigente da data da compra', async () => {
+    await service.createTransaction('user-1', {
+      amount: 100,
+      description: 'Compra depois do fechamento',
+      transactionDate: '2025-06-16',
+      categoryId: 'category-1',
+      type: TransactionType.CREDIT,
+      cardId: 'card-1',
+    });
+
+    expect(prisma.transaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        periodId: 'period-1',
+        billingDate: new Date('2025-07-01T00:00:00.000Z'),
+      }),
+    });
+    expect(prisma.salaryPeriod.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          startedAt: {
+            lte: new Date('2025-06-16T00:00:00.000Z'),
+          },
+        }),
+      }),
+    );
+  });
+
+  it.each([
+    [TransactionType.CREDIT, 'card-1'],
+    [TransactionType.DEBIT, undefined],
+    [TransactionType.PIX, undefined],
+  ])(
+    'deve resolver periodo atual quando %s acontece no dia do pagamento',
+    async (type, cardId) => {
+      await service.createTransaction('user-1', {
+        amount: 25,
+        description: 'Pagamento',
+        transactionDate: '2025-05-07',
+        categoryId: 'category-1',
+        type,
+        cardId,
+      });
+
+      expect(prisma.salaryPeriod.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          startedAt: {
+            lte: new Date('2025-05-07T00:00:00.000Z'),
+          },
+          OR: [
+            {
+              endedAt: {
+                gte: new Date('2025-05-07T00:00:00.000Z'),
+              },
+            },
+            {
+              endedAt: null,
+            },
+          ],
+        },
+        orderBy: { startedAt: 'desc' },
+      });
+    },
+  );
+
+  it.each([
+    [TransactionType.CREDIT, 'card-1'],
+    [TransactionType.DEBIT, undefined],
+    [TransactionType.PIX, undefined],
+  ])(
+    'deve resolver periodo anterior quando %s acontece no dia anterior ao pagamento',
+    async (type, cardId) => {
+      await service.createTransaction('user-1', {
+        amount: 25,
+        description: 'Véspera',
+        transactionDate: '2025-05-06',
+        categoryId: 'category-1',
+        type,
+        cardId,
+      });
+
+      expect(prisma.salaryPeriod.findFirst).toHaveBeenCalledWith({
+        where: {
+          userId: 'user-1',
+          startedAt: {
+            lte: new Date('2025-05-06T00:00:00.000Z'),
+          },
+          OR: [
+            {
+              endedAt: {
+                gte: new Date('2025-05-06T00:00:00.000Z'),
+              },
+            },
+            {
+              endedAt: null,
+            },
+          ],
+        },
+        orderBy: { startedAt: 'desc' },
+      });
+    },
+  );
+
+  it.each([
+    [TransactionType.CREDIT, 'card-1'],
+    [TransactionType.DEBIT, undefined],
+    [TransactionType.PIX, undefined],
+  ])('deve rejeitar %s quando periodo não existir', async (type, cardId) => {
     prisma.salaryPeriod.findFirst.mockResolvedValue(null);
 
     await expect(
@@ -218,33 +325,12 @@ describe('CreateTransactionService', () => {
         description: 'Mercado',
         transactionDate: '2025-05-07',
         categoryId: 'category-1',
-        type: TransactionType.PIX,
+        type,
+        cardId,
       }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
+    ).rejects.toThrow('Cadastre seu salário antes de registrar transações.');
 
-  it('deve permitir credito sem periodo quando a fatura futura ainda nao tem salario', async () => {
-    prisma.salaryPeriod.findFirst.mockResolvedValue(null);
-
-    await expect(
-      service.createTransaction('user-1', {
-        amount: 25,
-        description: 'Mercado',
-        transactionDate: '2025-05-06',
-        categoryId: 'category-1',
-        type: TransactionType.CREDIT,
-        cardId: 'card-1',
-      }),
-    ).resolves.toMatchObject({
-      periodId: null,
-      billingDate: new Date('2025-06-01T00:00:00.000Z'),
-    });
-
-    expect(prisma.transaction.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        periodId: null,
-      }),
-    });
+    expect(prisma.transaction.create).not.toHaveBeenCalled();
   });
 
   it('deve rejeitar categoria raiz', async () => {
@@ -349,7 +435,7 @@ describe('CreateTransactionService', () => {
         type: TransactionType.CREDIT,
       }),
     ).rejects.toThrow(
-      'Nenhum cart\u00e3o cadastrado. Cadastre um cart\u00e3o para continuar.',
+      'Nenhum cartão cadastrado. Cadastre um cartão para continuar.',
     );
   });
 
@@ -365,7 +451,7 @@ describe('CreateTransactionService', () => {
         type: TransactionType.CREDIT,
       }),
     ).rejects.toThrow(
-      'Nenhum cart\u00e3o padr\u00e3o definido. Defina um cart\u00e3o padr\u00e3o ou informe o cardId.',
+      'Nenhum cartão padrão definido. Defina um cartão padrão ou informe o cardId.',
     );
   });
 });
