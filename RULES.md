@@ -82,7 +82,7 @@ Campos de relacionamento que apontam para esses identificadores devem permanecer
 Decisão de arquitetura para evitar duplicação de lógica:
 
 - **Helpers** — lógica pura de cálculo, sem acesso a banco, sem dependências de outros serviços. Vivem em `src/shared/helpers/`. Exemplos: cálculo de `billingDate`, cálculo de `referenceMonth`, transformações de data.
-- **Injeção entre módulos** — quando o caso de uso envolve banco ou regra de negócio de outro módulo. Exemplos: `CreateTransactionService` injetado no `FixedExpenseService`, `LinkOrphanTransactionsService` injetado no `CreateSalaryService`.
+- **Injeção entre módulos** — quando o caso de uso envolve banco ou regra de negócio de outro módulo. Exemplos: `CreateTransactionService` injetado no `FixedExpenseService`, `LinkOrphanInstallmentsService` injetado no `CreateSalaryService`.
 
 > **Regra prática:** se precisa de banco ou de regra de negócio de outro módulo, injeta. Se é lógica pura de cálculo, vira helper.
 
@@ -244,22 +244,24 @@ O `CreateSalaryService` executa os seguintes passos em ordem:
 2. Buscar o `SalaryPeriod` mais recente do usuário (onde `endedAt IS NULL`).
 3. Atualizar o `endedAt` desse período para `novoSalary.paidAt - 1 dia`.
 4. Criar o novo `SalaryPeriod` com `endedAt = NULL`.
-5. Chamar `LinkOrphanTransactionsService` passando o `periodId` recém-criado e o `referenceMonth`.
+5. Chamar `LinkOrphanInstallmentsService` passando o `periodId` recém-criado e o `referenceMonth`.
 
-### LinkOrphanTransactionsService
+> **Nota:** este passo 5 só tem efeito sobre parcelas de `FixedExpense` (ver seção 8). Transações de crédito comuns (`Transaction`) nunca ficam órfãs — seu `periodId` é resolvido pela data real da compra no momento da criação (ver seção 7), então não há nada para religar aqui.
 
-Service dedicado, chamado pelo `CreateSalaryService` após criar o novo `SalaryPeriod`. Responsabilidade única: vincular transações de crédito órfãs ao período recém-criado.
+### LinkOrphanInstallmentsService
+
+Service dedicado, chamado pelo `CreateSalaryService` após criar o novo `SalaryPeriod`. Responsabilidade única: vincular **parcelas de `FixedExpense`** órfãs ao período recém-criado. **Não atua sobre `Transaction` de crédito comum** — apenas sobre `Transaction`s geradas como parcela (`fixedExpenseId IS NOT NULL`).
 
 ```sql
 UPDATE transactions
 SET period_id = :periodId
 WHERE user_id = :userId
-  AND type = 'CREDIT'
+  AND fixed_expense_id IS NOT NULL
   AND period_id IS NULL
   AND billing_date = :referenceMonth
 ```
 
-> **Decisão (ponto 1):** transações de crédito podem ser criadas com `periodId = NULL` quando o `SalaryPeriod` do mês da fatura ainda não existe. A ausência de período nunca impede o cadastro de transações de crédito. O vínculo é feito automaticamente pelo `LinkOrphanTransactionsService` quando o salário correspondente for cadastrado.
+> **Decisão (ponto 1, revisada):** parcelas de `FixedExpense` podem ser criadas com `periodId = NULL` quando o `SalaryPeriod` do mês da parcela ainda não existe — isso é esperado, já que parcelas futuras distantes (ex: parcela 12/12) frequentemente cobrem meses para os quais nenhum salário foi cadastrado ainda. A ausência de período nunca impede a geração das parcelas. O vínculo é feito automaticamente pelo `LinkOrphanInstallmentsService` quando o salário correspondente for cadastrado. **Transações de crédito comuns não usam mais este mecanismo** (ver seção 7) — elas sempre nascem com `periodId` resolvido, pois sua data de referência é a data real da compra (presente ou passado), que sempre tem um `SalaryPeriod` vigente.
 
 ### Remoção do Salário Mais Recente (Correção de Erro de Cadastro)
 
@@ -272,32 +274,32 @@ Diferente da regra geral de imutabilidade, o **salário mais recente** cadastrad
 **Validações antes de permitir a remoção:**
 
 1. O salário deve ser o mais recente do usuário (`endedAt IS NULL` no `SalaryPeriod` correspondente).
-2. Buscar transações de `DEBIT` ou `PIX` vinculadas a esse `periodId`. Se existir **qualquer uma**, **bloquear a remoção** com erro claro orientando o usuário a remover (soft delete) essas transações antes. `DEBIT` e `PIX` nunca podem ficar com `periodId = NULL` — não existe estado órfão permitido para esses tipos.
-3. Transações de `CREDIT` vinculadas **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo).
+2. Buscar transações de `DEBIT`, `PIX` **ou `CREDIT`** vinculadas a esse `periodId`. Se existir **qualquer uma**, **bloquear a remoção** com erro claro orientando o usuário a remover (soft delete) essas transações antes. Nenhum tipo de `Transaction` pode ficar com `periodId = NULL` — não existe mais estado órfão permitido para transações comuns, de nenhum tipo.
+3. Parcelas de `FixedExpense` vinculadas a esse `periodId` **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo), pois continuam usando o mecanismo de órfã (seção 8).
 
 **Fluxo de remoção — `DeleteSalaryService`:**
 
 ```
 1. Validar que o salário é o mais recente (endedAt do período = NULL)
-2. Buscar transações DEBIT/PIX vinculadas ao periodId
+2. Buscar transações DEBIT, PIX ou CREDIT (exceto parcelas de FixedExpense) vinculadas ao periodId
    → Se existir alguma, lançar erro e abortar (nenhuma alteração é feita)
-3. Chamar UnlinkOrphanTransactionsService(periodId) — desvincula as transações
-   de CREDIT vinculadas a esse período, voltando periodId para NULL
+3. Chamar `UnlinkOrphanInstallmentsService(periodId)` — desvincula as parcelas
+   de FixedExpense vinculadas a esse período, voltando periodId para NULL
 4. Deletar o SalaryPeriod (hard delete)
 5. Deletar o Salary (hard delete)
 6. Reabrir o período anterior: setar endedAt = NULL nele
 ```
 
-**`UnlinkOrphanTransactionsService`** — service dedicado, espelha exatamente o comportamento inverso do `LinkOrphanTransactionsService` (seção 6). Responsabilidade única:
+**`UnlinkOrphanInstallmentsService`** — service dedicado, espelha exatamente o comportamento inverso do `LinkOrphanInstallmentsService` (seção 6). Atua **apenas sobre parcelas de `FixedExpense`**, nunca sobre `Transaction` de crédito comum. Responsabilidade única:
 
 ```sql
 UPDATE transactions
 SET period_id = NULL
 WHERE period_id = :periodId
-  AND type = 'CREDIT'
+  AND fixed_expense_id IS NOT NULL
 ```
 
-> **Decisão:** bloquear a remoção sempre que houvesse qualquer transação vinculada tornaria o recurso inútil na prática, já que o `LinkOrphanTransactionsService` vincula transações de crédito automaticamente assim que o `SalaryPeriod` é criado. A única forma de corrigir um salário recém-criado por erro é desfazer esse vínculo automaticamente antes do delete — exceto para `DEBIT`/`PIX`, que dependem obrigatoriamente de um período válido e por isso bloqueiam a operação.
+> **Decisão (revisada):** antes, transações de crédito comuns eram desvinculadas automaticamente para nunca bloquear a remoção do salário, já que seu vínculo de período vinha do mês da fatura. Agora que o `periodId` de uma `Transaction` comum reflete a data real em que o gasto foi feito (ver seção 7), desvincular essa transação ao deletar o salário deixaria de fazer sentido — apagaria o registro de quando o dinheiro foi efetivamente gasto. Por isso, `CREDIT` passa a se comportar como `DEBIT`/`PIX` aqui: **bloqueia a remoção**. Parcelas de `FixedExpense` continuam sendo a exceção, porque seu vínculo é estrutural ao calendário de pagamento da parcela (mês 1, mês 2...) e não a um gasto pontual já realizado.
 
 **Endpoint:**
 
@@ -318,41 +320,6 @@ LIMIT 1
 ```
 
 Se nenhum salário for encontrado, retornar erro indicando que nenhum salário foi cadastrado.
-
-### Remoção do Salário Mais Recente (correção de erro de cadastro)
-
-Diferente da regra geral de imutabilidade, o sistema **permite deletar o salário mais recente** cadastrado pelo usuário, para corrigir erros de digitação (data ou valor incorretos) sem deixar o histórico permanentemente inconsistente.
-
-**Restrição de elegibilidade:**
-
-- Só é permitido deletar o salário cujo `SalaryPeriod` correspondente tenha `endedAt = NULL` (ou seja, o período mais recente, ainda em andamento).
-- Não é possível deletar salários intermediários ou antigos do histórico.
-
-**Validação de bloqueio:**
-
-- Se existir qualquer transação de `DEBIT` ou `PIX` vinculada a esse `SalaryPeriod`, o delete deve ser **rejeitado**. Débito e PIX nunca podem ficar com `periodId = NULL`, então não há como desfazer esse vínculo sem violar a regra de período obrigatório desses tipos. Nesse caso, o usuário deve primeiro soft-deletar essas transações antes de poder remover o salário.
-- Transações de `CREDIT` vinculadas **não bloqueiam** o delete — elas são desvinculadas automaticamente (ver abaixo).
-
-**Fluxo do `DeleteSalaryService`, em ordem:**
-
-```
-1. Validar que o salário pertence ao userId autenticado.
-2. Validar que é o salário mais recente (SalaryPeriod.endedAt = NULL).
-3. Verificar se existe transação DEBIT ou PIX vinculada ao periodId:
-   → Se existir, rejeitar com erro claro.
-4. Desvincular transações CREDIT vinculadas a esse periodId (UnlinkOrphanTransactionsService):
-   UPDATE transactions
-   SET period_id = NULL
-   WHERE period_id = :periodId
-     AND type = 'CREDIT'
-5. Hard delete do SalaryPeriod.
-6. Hard delete do Salary.
-7. Reabrir o período anterior: setar endedAt = NULL nele.
-```
-
-> **Decisão:** este é um **hard delete**, não soft delete — diferente do restante do sistema. A razão é conceitual: isso não é uma transação que aconteceu e precisa permanecer no histórico, é a correção de um erro de cadastro que nunca deveria ter existido. Manter soft delete aqui obrigaria o sistema a sempre ignorar um salário "fantasma" em todas as queries de fallback e período vigente, adicionando complexidade sem benefício real.
-
-> **`UnlinkOrphanTransactionsService`** é o inverso simétrico do `LinkOrphanTransactionsService` (ver acima). Sua única responsabilidade é devolver `periodId = NULL` para transações de crédito antes do período ser removido, permitindo que elas sejam religadas automaticamente quando o usuário cadastrar o salário correto.
 
 ### Comportamento antes do pagamento
 
@@ -391,25 +358,10 @@ billingDate = transaction_date (a própria data da compra)
 
 ### Cálculo do `periodId`
 
-O `periodId` é resolvido com base na **data âncora**, que difere por tipo:
-
-**Para CRÉDITO:**
+O `periodId` é resolvido com base na **data âncora**. A partir desta revisão, **a regra é a mesma para todos os tipos de transação** (`CREDIT`, `DEBIT`, `PIX`): a data âncora é sempre a data real em que o gasto ocorreu, nunca o mês da fatura do cartão.
 
 ```
-dataAncora = billingDate (mês da fatura)
-
-Query:
-SELECT id FROM salary_periods
-WHERE user_id = :userId
-  AND reference_month = :dataAncora  -- match exato de mês/ano
-```
-
-Se a transação for de **CRÉDITO** e ainda não existir `SalaryPeriod` para o mês da fatura (`billingDate`), a transação **deve ser criada mesmo assim** com `periodId = NULL`. O `LinkOrphanTransactionsService` fará o vínculo quando o salário correspondente for cadastrado.
-
-**Para DÉBITO e PIX:**
-
-```
-dataAncora = transaction_date
+dataAncora = transaction_date  (para CREDIT, DEBIT e PIX)
 
 Query:
 SELECT id FROM salary_periods
@@ -420,10 +372,13 @@ ORDER BY started_at DESC
 LIMIT 1
 ```
 
+> **Importante — `billingDate` e `periodId` são independentes:** o `billingDate` (seção anterior) determina **apenas** a qual fatura do cartão a compra pertence, para fins de agrupamento em `GET /reports/billing`. O `periodId` determina o **saldo disponível** debitado, e reflete sempre o período financeiro vigente no momento da compra. Uma compra de crédito feita em 16/06 (com cartão fechando dia 06) tem `billingDate` em julho, mas `periodId` referente a junho — ela entra na fatura de julho, mas debita o saldo de junho, porque foi nele que o compromisso foi assumido.
+
+> **Decisão (revisada):** anteriormente, o `periodId` de transações de `CREDIT` era resolvido pelo mês da fatura (`billingDate`), o que causava dois problemas práticos: (1) uma compra feita após o fechamento do cartão não debitava o saldo do período vigente, dando a falsa impressão de saldo disponível maior do que realmente havia; e (2) compras feitas em meses para os quais ainda não existia salário cadastrado ficavam órfãs (`periodId = NULL`) até o cadastro do salário seguinte. Como o período mais recente (`endedAt IS NULL`) cobre indefinidamente o presente e o futuro até ser encerrado por um novo salário, a nova regra garante que **toda transação comum sempre encontra um período vigente** no momento da criação — eliminando a necessidade de órfã para este caso (ver seção 6).
+
 ### Período não encontrado
 
-- **CRÉDITO:** ausência de `SalaryPeriod` **não impede** o cadastro — `periodId` fica `NULL`.
-- **DÉBITO / PIX:** ausência de `SalaryPeriod` **retorna erro** solicitando que o usuário cadastre seu salário.
+- **CRÉDITO, DÉBITO e PIX:** ausência de `SalaryPeriod` vigente para a `transaction_date` **retorna erro** solicitando que o usuário cadastre seu salário. Isso só ocorre se nenhum salário tiver sido cadastrado ainda (nem o mais antigo) — uma vez que exista ao menos um `Salary`, o período mais recente cobre qualquer data presente ou futura.
 
 ### Exemplos de resolução de período
 
@@ -434,12 +389,18 @@ Configuração:
   Salário de Junho: paidAt = 06/06/2025
 
 Compra CRÉDITO (Cartão B) em 05/05:
-  05 < 06 → billingDate = 01/05/2025
-  referenceMonth = 01/05/2025 → period = Maio ✓
+  billingDate = 01/05/2025 (fatura de Maio, dia 05 < 06)
+  periodId: dataAncora = 05/05 → 05/05 < paidAt de Maio (07/05) → period = Abril ✓
 
-Compra CRÉDITO (Cartão B) em 06/05:
-  06 >= 06 → billingDate = 01/06/2025
-  referenceMonth = 01/06/2025 → period = Junho ✓
+Compra CRÉDITO (Cartão B) em 16/05:
+  billingDate = 01/06/2025 (fatura de Junho, dia 16 >= 06)
+  periodId: dataAncora = 16/05 → 16/05 >= paidAt de Maio (07/05) e < paidAt de Junho (06/06) → period = Maio ✓
+  (a compra entra na fatura de Junho, mas debita o saldo do período de Maio — vigente na data da compra)
+
+Compra CRÉDITO (Cartão B) em 16/06, sem salário de Julho cadastrado ainda:
+  billingDate = 01/07/2025 (fatura de Julho, dia 16 >= 06)
+  periodId: dataAncora = 16/06 → 16/06 >= paidAt de Junho (06/06) → period = Junho ✓
+  (período de Junho está aberto, endedAt = NULL, então cobre 16/06 normalmente)
 
 PIX em 06/05:
   dataAncora = 06/05/2025
@@ -489,7 +450,7 @@ Para i de 0 até totalInstallments - 1:
     description    = "{description} — Parcela {i+1}/{totalInstallments}"
 ```
 
-> **Decisão (ponto 3):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanTransactionsService` vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado.
+> **Decisão (ponto 3):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanInstallmentsService` (seção 6) vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado. **Esta é a única situação no sistema em que uma `Transaction` pode nascer com `periodId = NULL`** — parcelas de `FixedExpense` continuam vinculadas pelo mês da própria parcela (`billingDate`), não pela data de criação do gasto fixo, pois representam um compromisso recorrente que se espalha mês a mês.
 
 ### Validações
 
@@ -596,14 +557,15 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - Deve criar salário e gerar SalaryPeriod automaticamente.
 - Deve atualizar `endedAt` do período anterior ao inserir novo salário.
-- Deve chamar `LinkOrphanTransactionsService` após criar o novo período.
+- Deve chamar `LinkOrphanInstallmentsService` após criar o novo período.
 - Deve rejeitar dois salários no mesmo dia para o mesmo usuário.
 - Deve retornar salário vigente via fallback (último `paidAt <= dataConsultada`).
 - Deve retornar erro se nenhum salário cadastrado.
 
-**`LinkOrphanTransactionsService`**
+**`LinkOrphanInstallmentsService`**
 
-- Deve vincular transações de crédito com `periodId = NULL` ao período correto pelo `referenceMonth`.
+- Deve vincular parcelas de `FixedExpense` com `periodId = NULL` ao período correto pelo `referenceMonth`.
+- Não deve afetar `Transaction` de crédito comum (sem `fixedExpenseId`).
 - Não deve afetar transações de `DEBIT` ou `PIX`.
 - Não deve afetar transações com `periodId` já preenchido.
 
@@ -611,26 +573,17 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - Deve permitir remover apenas o salário mais recente (`endedAt IS NULL` no período).
 - Deve rejeitar remoção se existir salário mais recente que o informado.
-- Deve bloquear remoção se existir transação `DEBIT` ou `PIX` vinculada ao período.
-- Deve desvincular (periodId = NULL) transações `CREDIT` vinculadas ao período antes de deletar.
+- Deve bloquear remoção se existir transação `DEBIT`, `PIX` ou `CREDIT` (não-parcela) vinculada ao período.
+- Deve desvincular (periodId = NULL) apenas parcelas de `FixedExpense` vinculadas ao período antes de deletar.
 - Deve deletar o `SalaryPeriod` e o `Salary` (hard delete).
 - Deve reabrir o período anterior (`endedAt = NULL`) após a remoção.
-
-**`UnlinkOrphanTransactionsService`**
-
-- Deve voltar `periodId` para `NULL` em todas as transações `CREDIT` vinculadas ao período informado.
-- Não deve afetar transações de `DEBIT` ou `PIX`.
-- Não deve afetar transações de outros períodos.
-
-**`DeleteSalaryService`**
-
-- Deve permitir deletar o salário mais recente (período com `endedAt = NULL`).
-- Deve rejeitar delete de salário que não seja o mais recente.
-- Deve rejeitar delete se existir transação `DEBIT` ou `PIX` vinculada ao período.
-- Deve desvincular (periodId = NULL) transações `CREDIT` vinculadas ao período antes de deletar.
-- Deve reabrir o período anterior (`endedAt = NULL`) após o delete.
-- Deve fazer hard delete do `Salary` e do `SalaryPeriod`.
 - Não deve permitir deletar salário de outro usuário.
+
+**`UnlinkOrphanInstallmentsService`**
+
+- Deve voltar `periodId` para `NULL` em todas as parcelas de `FixedExpense` vinculadas ao período informado.
+- Não deve afetar `Transaction` de crédito comum, `DEBIT` ou `PIX`.
+- Não deve afetar transações de outros períodos.
 
 **`TransactionService` — regra de `billingDate`**
 
@@ -643,16 +596,16 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 **`TransactionService` — regra de `periodId`**
 
-- CRÉDITO: deve buscar período por `referenceMonth` do `billingDate`.
-- CRÉDITO: sem `SalaryPeriod` → criar transação com `periodId = NULL` (nunca rejeitar).
-- DÉBITO/PIX: compra no dia do pagamento → período atual.
-- DÉBITO/PIX: compra no dia anterior ao pagamento → período anterior.
-- DÉBITO/PIX: sem `SalaryPeriod` → retornar erro.
+- CRÉDITO: deve buscar período pelo período vigente na `transaction_date` (mesma regra de DÉBITO/PIX), não pelo `billingDate`.
+- CRÉDITO: compra após o fechamento do cartão (billingDate no mês seguinte) ainda deve debitar o saldo do período vigente na data da compra.
+- CRÉDITO, DÉBITO/PIX: compra no dia do pagamento → período atual.
+- CRÉDITO, DÉBITO/PIX: compra no dia anterior ao pagamento → período anterior.
+- CRÉDITO, DÉBITO/PIX: sem `SalaryPeriod` vigente (nenhum salário cadastrado ainda) → retornar erro.
 
 **`FixedExpenseService`**
 
 - Deve gerar exatamente `totalInstallments` transações ao criar.
-- Cada parcela deve ter `billingDate` e `periodId` corretos.
+- Cada parcela deve ter `billingDate` e `periodId` corretos, vinculados pelo mês da própria parcela.
 - Parcelas sem `SalaryPeriod` devem ser criadas com `periodId = NULL` (nunca rejeitar).
 - Soft delete deve apagar parcelas futuras e preservar passadas.
 
