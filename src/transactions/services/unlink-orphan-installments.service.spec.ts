@@ -14,7 +14,7 @@ describe('UnlinkOrphanInstallmentsService', () => {
     prisma.transaction.updateMany.mockResolvedValue({ count: 1 });
   });
 
-  it('deve voltar periodId para NULL somente em parcelas vinculadas ao periodo informado', async () => {
+  it('deve voltar periodId para NULL em parcelas ou transações soft-deletadas do periodo informado', async () => {
     await expect(
       service.unlinkOrphanInstallments({
         periodId: 'period-june',
@@ -24,9 +24,18 @@ describe('UnlinkOrphanInstallmentsService', () => {
     expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
       where: {
         periodId: 'period-june',
-        fixedExpenseId: {
-          not: null,
-        },
+        OR: [
+          {
+            fixedExpenseId: {
+              not: null,
+            },
+          },
+          {
+            deletedAt: {
+              not: null,
+            },
+          },
+        ],
       },
       data: {
         periodId: null,
@@ -34,17 +43,46 @@ describe('UnlinkOrphanInstallmentsService', () => {
     });
   });
 
-  it('não deve afetar transações comuns sem fixedExpenseId', async () => {
+  it('deve desvincular transação comum soft-deletada de qualquer tipo', async () => {
     await service.unlinkOrphanInstallments({
       periodId: 'period-june',
     });
 
     expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
-        fixedExpenseId: {
-          not: null,
-        },
+        OR: expect.arrayContaining([
+          {
+            deletedAt: {
+              not: null,
+            },
+          },
+        ]),
       }),
+      data: expect.any(Object),
+    });
+  });
+
+  it('não deve afetar transações comuns ativas', async () => {
+    await service.unlinkOrphanInstallments({
+      periodId: 'period-june',
+    });
+
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
+      where: {
+        periodId: 'period-june',
+        OR: [
+          {
+            fixedExpenseId: {
+              not: null,
+            },
+          },
+          {
+            deletedAt: {
+              not: null,
+            },
+          },
+        ],
+      },
       data: expect.any(Object),
     });
   });

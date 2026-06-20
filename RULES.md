@@ -274,32 +274,42 @@ Diferente da regra geral de imutabilidade, o **salário mais recente** cadastrad
 **Validações antes de permitir a remoção:**
 
 1. O salário deve ser o mais recente do usuário (`endedAt IS NULL` no `SalaryPeriod` correspondente).
-2. Buscar transações de `DEBIT`, `PIX` **ou `CREDIT`** vinculadas a esse `periodId`. Se existir **qualquer uma**, **bloquear a remoção** com erro claro orientando o usuário a remover (soft delete) essas transações antes. Nenhum tipo de `Transaction` pode ficar com `periodId = NULL` — não existe mais estado órfão permitido para transações comuns, de nenhum tipo.
-3. Parcelas de `FixedExpense` vinculadas a esse `periodId` **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo), pois continuam usando o mecanismo de órfã (seção 8).
+2. Buscar transações **ativas** (`deletedAt IS NULL`) de `DEBIT`, `PIX` **ou `CREDIT`** vinculadas a esse `periodId`. Se existir **qualquer uma**, **bloquear a remoção** com erro claro orientando o usuário a remover (soft delete) essas transações antes. Transações **soft-deletadas não contam para esta validação** — elas não impactam saldo (seção 11) e por isso não devem impedir a correção do salário.
+3. Parcelas de `FixedExpense` (ativas ou soft-deletadas) vinculadas a esse `periodId` **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo).
 
 **Fluxo de remoção — `DeleteSalaryService`:**
 
 ```
 1. Validar que o salário é o mais recente (endedAt do período = NULL)
-2. Buscar transações DEBIT, PIX ou CREDIT (exceto parcelas de FixedExpense) vinculadas ao periodId
+2. Buscar transações ATIVAS (deletedAt IS NULL) de DEBIT, PIX ou CREDIT
+   (exceto parcelas de FixedExpense) vinculadas ao periodId
    → Se existir alguma, lançar erro e abortar (nenhuma alteração é feita)
-3. Chamar `UnlinkOrphanInstallmentsService(periodId)` — desvincula as parcelas
-   de FixedExpense vinculadas a esse período, voltando periodId para NULL
+3. Chamar `UnlinkOrphanInstallmentsService(periodId)` — desvincula TODAS as
+   transações vinculadas a esse período que não podem permanecer referenciando
+   um SalaryPeriod que será hard-deletado:
+     a) parcelas de FixedExpense (ativas ou soft-deletadas)
+     b) transações comuns (DEBIT, PIX, CREDIT) já soft-deletadas
+   (transações comuns ATIVAS já foram garantidas ausentes pelo passo 2)
 4. Deletar o SalaryPeriod (hard delete)
 5. Deletar o Salary (hard delete)
 6. Reabrir o período anterior: setar endedAt = NULL nele
 ```
 
-**`UnlinkOrphanInstallmentsService`** — service dedicado, espelha exatamente o comportamento inverso do `LinkOrphanInstallmentsService` (seção 6). Atua **apenas sobre parcelas de `FixedExpense`**, nunca sobre `Transaction` de crédito comum. Responsabilidade única:
+> **Por que o passo 3 também cobre soft-deletadas:** a constraint `onDelete: Restrict` entre `Transaction.periodId` e `SalaryPeriod.id` não distingue soft delete — qualquer linha de `Transaction`, ativa ou não, que ainda referencie o `periodId` impede o hard delete do `SalaryPeriod` no banco. Por isso, mesmo uma transação soft-deletada (que não bloqueia a remoção pela regra de negócio do passo 2) precisa ser desvinculada antes do hard delete, ou a operação falha por violação de FK.
+
+**`UnlinkOrphanInstallmentsService`** — service dedicado, espelha exatamente o comportamento inverso do `LinkOrphanInstallmentsService` (seção 6). Responsabilidade única:
 
 ```sql
 UPDATE transactions
 SET period_id = NULL
 WHERE period_id = :periodId
-  AND fixed_expense_id IS NOT NULL
+  AND (
+    fixed_expense_id IS NOT NULL
+    OR deleted_at IS NOT NULL
+  )
 ```
 
-> **Decisão (revisada):** antes, transações de crédito comuns eram desvinculadas automaticamente para nunca bloquear a remoção do salário, já que seu vínculo de período vinha do mês da fatura. Agora que o `periodId` de uma `Transaction` comum reflete a data real em que o gasto foi feito (ver seção 7), desvincular essa transação ao deletar o salário deixaria de fazer sentido — apagaria o registro de quando o dinheiro foi efetivamente gasto. Por isso, `CREDIT` passa a se comportar como `DEBIT`/`PIX` aqui: **bloqueia a remoção**. Parcelas de `FixedExpense` continuam sendo a exceção, porque seu vínculo é estrutural ao calendário de pagamento da parcela (mês 1, mês 2...) e não a um gasto pontual já realizado.
+> **Decisão (revisada):** antes, transações de crédito comuns eram desvinculadas automaticamente para nunca bloquear a remoção do salário, já que seu vínculo de período vinha do mês da fatura. Agora que o `periodId` de uma `Transaction` comum **ativa** reflete a data real em que o gasto foi feito (ver seção 7), desvincular essa transação ao deletar o salário deixaria de fazer sentido — apagaria o registro de quando o dinheiro foi efetivamente gasto. Por isso, `CREDIT` **ativo** passa a se comportar como `DEBIT`/`PIX` **ativo** aqui: **bloqueia a remoção**. As duas exceções que continuam sendo desvinculadas automaticamente são: (1) parcelas de `FixedExpense`, porque seu vínculo é estrutural ao calendário de pagamento da parcela e não a um gasto pontual já realizado; e (2) qualquer transação já soft-deletada, de qualquer tipo, porque ela não representa mais um evento real para o saldo e existe apenas como linha técnica que precisa ser desvinculada para não violar a constraint de FK no hard delete do período.
 
 **Endpoint:**
 
@@ -573,16 +583,19 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - Deve permitir remover apenas o salário mais recente (`endedAt IS NULL` no período).
 - Deve rejeitar remoção se existir salário mais recente que o informado.
-- Deve bloquear remoção se existir transação `DEBIT`, `PIX` ou `CREDIT` (não-parcela) vinculada ao período.
-- Deve desvincular (periodId = NULL) apenas parcelas de `FixedExpense` vinculadas ao período antes de deletar.
-- Deve deletar o `SalaryPeriod` e o `Salary` (hard delete).
+- Deve bloquear remoção se existir transação **ativa** (`deletedAt IS NULL`) de `DEBIT`, `PIX` ou `CREDIT` (não-parcela) vinculada ao período.
+- Não deve bloquear remoção se a única transação `DEBIT`, `PIX` ou `CREDIT` vinculada estiver soft-deletada (`deletedAt` preenchido).
+- Deve desvincular (periodId = NULL) parcelas de `FixedExpense` (ativas ou soft-deletadas) vinculadas ao período antes de deletar.
+- Deve desvincular (periodId = NULL) transações comuns soft-deletadas (`DEBIT`, `PIX`, `CREDIT`) vinculadas ao período antes de deletar, para não violar a constraint de FK no hard delete do `SalaryPeriod`.
+- Deve deletar o `SalaryPeriod` e o `Salary` (hard delete) com sucesso mesmo havendo transações soft-deletadas previamente vinculadas.
 - Deve reabrir o período anterior (`endedAt = NULL`) após a remoção.
 - Não deve permitir deletar salário de outro usuário.
 
 **`UnlinkOrphanInstallmentsService`**
 
-- Deve voltar `periodId` para `NULL` em todas as parcelas de `FixedExpense` vinculadas ao período informado.
-- Não deve afetar `Transaction` de crédito comum, `DEBIT` ou `PIX`.
+- Deve voltar `periodId` para `NULL` em todas as parcelas de `FixedExpense` (ativas ou soft-deletadas) vinculadas ao período informado.
+- Deve voltar `periodId` para `NULL` em transações comuns (`DEBIT`, `PIX`, `CREDIT`) **soft-deletadas** vinculadas ao período informado.
+- Não deve afetar transações comuns **ativas** de nenhum tipo (`DEBIT`, `PIX`, `CREDIT`) — essas já são garantidas ausentes pela validação de bloqueio antes deste service ser chamado.
 - Não deve afetar transações de outros períodos.
 
 **`TransactionService` — regra de `billingDate`**

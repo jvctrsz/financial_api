@@ -49,6 +49,7 @@ export class DeleteSalaryService {
         where: {
           periodId: periodBeingDeleted.id,
           fixedExpenseId: null,
+          deletedAt: null,
           type: {
             in: [
               TransactionType.CREDIT,

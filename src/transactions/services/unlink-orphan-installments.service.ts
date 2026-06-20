@@ -21,9 +21,18 @@ export class UnlinkOrphanInstallmentsService {
     return prismaClient.transaction.updateMany({
       where: {
         periodId,
-        fixedExpenseId: {
-          not: null,
-        },
+        OR: [
+          {
+            fixedExpenseId: {
+              not: null,
+            },
+          },
+          {
+            deletedAt: {
+              not: null,
+            },
+          },
+        ],
       },
       data: {
         periodId: null,

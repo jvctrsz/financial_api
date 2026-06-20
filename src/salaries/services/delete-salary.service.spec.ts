@@ -126,44 +126,91 @@ describe('DeleteSalaryService', () => {
     expect(prisma.salary.delete).not.toHaveBeenCalled();
   });
 
-  it.each([
-    TransactionType.CREDIT,
-    TransactionType.DEBIT,
-    TransactionType.PIX,
-  ])('deve bloquear delete se existir transação comum %s vinculada ao periodo', async (type) => {
-    prisma.transaction.findFirst.mockResolvedValue({
-      id: `transaction-${type.toLowerCase()}`,
-      type,
-    });
+  it.each([TransactionType.CREDIT, TransactionType.DEBIT, TransactionType.PIX])(
+    'deve bloquear delete se existir transação comum ativa vinculada ao periodo',
+    async (type) => {
+      prisma.transaction.findFirst.mockResolvedValue({
+        id: `transaction-${type.toLowerCase()}`,
+        type,
+      });
 
-    await expect(
-      service.deleteSalary('user-1', 'salary-june'),
-    ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.deleteSalary('user-1', 'salary-june'),
+      ).rejects.toBeInstanceOf(BadRequestException);
 
-    expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
-      where: {
-        periodId: 'period-june',
-        fixedExpenseId: null,
-        type: {
-          in: [
-            TransactionType.CREDIT,
-            TransactionType.DEBIT,
-            TransactionType.PIX,
-          ],
+      expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+        where: {
+          periodId: 'period-june',
+          fixedExpenseId: null,
+          deletedAt: null,
+          type: {
+            in: [
+              TransactionType.CREDIT,
+              TransactionType.DEBIT,
+              TransactionType.PIX,
+            ],
+          },
         },
-      },
-      select: {
-        id: true,
-      },
-    });
+        select: {
+          id: true,
+        },
+      });
+      expect(
+        unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
+      ).not.toHaveBeenCalled();
+      expect(prisma.salaryPeriod.delete).not.toHaveBeenCalled();
+      expect(prisma.salary.delete).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([TransactionType.CREDIT, TransactionType.DEBIT, TransactionType.PIX])(
+    'não deve bloquear delete se a única transação comum vinculada estiver soft-deletada',
+    async () => {
+      await expect(
+        service.deleteSalary('user-1', 'salary-june'),
+      ).resolves.toEqual(salary);
+
+      expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+        where: {
+          periodId: 'period-june',
+          fixedExpenseId: null,
+          deletedAt: null,
+          type: {
+            in: [
+              TransactionType.CREDIT,
+              TransactionType.DEBIT,
+              TransactionType.PIX,
+            ],
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+    },
+  );
+
+  it('deve desvincular transações soft-deletadas antes do hard delete do SalaryPeriod', async () => {
+    await service.deleteSalary('user-1', 'salary-june');
+
     expect(
       unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
-    ).not.toHaveBeenCalled();
-    expect(prisma.salaryPeriod.delete).not.toHaveBeenCalled();
-    expect(prisma.salary.delete).not.toHaveBeenCalled();
+    ).toHaveBeenCalledWith(
+      {
+        periodId: 'period-june',
+      },
+      prisma,
+    );
+    expect(
+      unlinkOrphanInstallmentsService.unlinkOrphanInstallments.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(prisma.salaryPeriod.delete.mock.invocationCallOrder[0]);
+    expect(prisma.salaryPeriod.delete).toHaveBeenCalledWith({
+      where: { id: 'period-june' },
+    });
   });
 
-  it('deve desvincular apenas parcelas antes de deletar', async () => {
+  it('deve desvincular parcelas antes de deletar', async () => {
     await service.deleteSalary('user-1', 'salary-june');
 
     expect(
