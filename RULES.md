@@ -57,7 +57,7 @@ Os seguintes recursos usam soft delete via campo `deletedAt`:
 
 - `Transaction`
 - `Income`
-- `FixedExpense`
+- `InstallmentExpense`
 - `AsideExpense`
 - `Category` (raiz e subcategoria) — ver seção 4
 
@@ -82,7 +82,7 @@ Campos de relacionamento que apontam para esses identificadores devem permanecer
 Decisão de arquitetura para evitar duplicação de lógica:
 
 - **Helpers** — lógica pura de cálculo, sem acesso a banco, sem dependências de outros serviços. Vivem em `src/shared/helpers/`. Exemplos: cálculo de `billingDate`, cálculo de `referenceMonth`, transformações de data.
-- **Injeção entre módulos** — quando o caso de uso envolve banco ou regra de negócio de outro módulo. Exemplos: `CreateTransactionService` injetado no `FixedExpenseService`, `LinkOrphanInstallmentsService` injetado no `CreateSalaryService`.
+- **Injeção entre módulos** — quando o caso de uso envolve banco ou regra de negócio de outro módulo. Exemplos: `CreateTransactionService` injetado no `InstallmentExpenseService`, `LinkOrphanInstallmentsService` injetado no `CreateSalaryService`.
 
 > **Regra prática:** se precisa de banco ou de regra de negócio de outro módulo, injeta. Se é lógica pura de cálculo, vira helper.
 
@@ -246,11 +246,11 @@ O `CreateSalaryService` executa os seguintes passos em ordem:
 4. Criar o novo `SalaryPeriod` com `endedAt = NULL`.
 5. Chamar `LinkOrphanInstallmentsService` passando o `periodId` recém-criado e o `referenceMonth`.
 
-> **Nota:** este passo 5 só tem efeito sobre parcelas de `FixedExpense` (ver seção 8). Transações de crédito comuns (`Transaction`) nunca ficam órfãs — seu `periodId` é resolvido pela data real da compra no momento da criação (ver seção 7), então não há nada para religar aqui.
+> **Nota:** este passo 5 só tem efeito sobre parcelas de `InstallmentExpense` (ver seção 8). Transações de crédito comuns (`Transaction`) nunca ficam órfãs — seu `periodId` é resolvido pela data real da compra no momento da criação (ver seção 7), então não há nada para religar aqui.
 
 ### LinkOrphanInstallmentsService
 
-Service dedicado, chamado pelo `CreateSalaryService` após criar o novo `SalaryPeriod`. Responsabilidade única: vincular **parcelas de `FixedExpense`** órfãs ao período recém-criado. **Não atua sobre `Transaction` de crédito comum** — apenas sobre `Transaction`s geradas como parcela (`fixedExpenseId IS NOT NULL`).
+Service dedicado, chamado pelo `CreateSalaryService` após criar o novo `SalaryPeriod`. Responsabilidade única: vincular **parcelas de `InstallmentExpense`** órfãs ao período recém-criado. **Não atua sobre `Transaction` de crédito comum** — apenas sobre `Transaction`s geradas como parcela (`installmentExpenseId IS NOT NULL`).
 
 ```sql
 UPDATE transactions
@@ -261,7 +261,7 @@ WHERE user_id = :userId
   AND billing_date = :referenceMonth
 ```
 
-> **Decisão (ponto 1, revisada):** parcelas de `FixedExpense` podem ser criadas com `periodId = NULL` quando o `SalaryPeriod` do mês da parcela ainda não existe — isso é esperado, já que parcelas futuras distantes (ex: parcela 12/12) frequentemente cobrem meses para os quais nenhum salário foi cadastrado ainda. A ausência de período nunca impede a geração das parcelas. O vínculo é feito automaticamente pelo `LinkOrphanInstallmentsService` quando o salário correspondente for cadastrado. **Transações de crédito comuns não usam mais este mecanismo** (ver seção 7) — elas sempre nascem com `periodId` resolvido, pois sua data de referência é a data real da compra (presente ou passado), que sempre tem um `SalaryPeriod` vigente.
+> **Decisão (ponto 1, revisada):** parcelas de `InstallmentExpense` podem ser criadas com `periodId = NULL` quando o `SalaryPeriod` do mês da parcela ainda não existe — isso é esperado, já que parcelas futuras distantes (ex: parcela 12/12) frequentemente cobrem meses para os quais nenhum salário foi cadastrado ainda. A ausência de período nunca impede a geração das parcelas. O vínculo é feito automaticamente pelo `LinkOrphanInstallmentsService` quando o salário correspondente for cadastrado. **Transações de crédito comuns não usam mais este mecanismo** (ver seção 7) — elas sempre nascem com `periodId` resolvido, pois sua data de referência é a data real da compra (presente ou passado), que sempre tem um `SalaryPeriod` vigente.
 
 ### Remoção do Salário Mais Recente (Correção de Erro de Cadastro)
 
@@ -275,19 +275,19 @@ Diferente da regra geral de imutabilidade, o **salário mais recente** cadastrad
 
 1. O salário deve ser o mais recente do usuário (`endedAt IS NULL` no `SalaryPeriod` correspondente).
 2. Buscar transações **ativas** (`deletedAt IS NULL`) de `DEBIT`, `PIX` **ou `CREDIT`** vinculadas a esse `periodId`. Se existir **qualquer uma**, **bloquear a remoção** com erro claro orientando o usuário a remover (soft delete) essas transações antes. Transações **soft-deletadas não contam para esta validação** — elas não impactam saldo (seção 11) e por isso não devem impedir a correção do salário.
-3. Parcelas de `FixedExpense` (ativas ou soft-deletadas) vinculadas a esse `periodId` **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo).
+3. Parcelas de `InstallmentExpense` (ativas ou soft-deletadas) vinculadas a esse `periodId` **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo).
 
 **Fluxo de remoção — `DeleteSalaryService`:**
 
 ```
 1. Validar que o salário é o mais recente (endedAt do período = NULL)
 2. Buscar transações ATIVAS (deletedAt IS NULL) de DEBIT, PIX ou CREDIT
-   (exceto parcelas de FixedExpense) vinculadas ao periodId
+   (exceto parcelas de InstallmentExpense) vinculadas ao periodId
    → Se existir alguma, lançar erro e abortar (nenhuma alteração é feita)
 3. Chamar `UnlinkOrphanInstallmentsService(periodId)` — desvincula TODAS as
    transações vinculadas a esse período que não podem permanecer referenciando
    um SalaryPeriod que será hard-deletado:
-     a) parcelas de FixedExpense (ativas ou soft-deletadas)
+     a) parcelas de InstallmentExpense (ativas ou soft-deletadas)
      b) transações comuns (DEBIT, PIX, CREDIT) já soft-deletadas
    (transações comuns ATIVAS já foram garantidas ausentes pelo passo 2)
 4. Deletar o SalaryPeriod (hard delete)
@@ -309,7 +309,7 @@ WHERE period_id = :periodId
   )
 ```
 
-> **Decisão (revisada):** antes, transações de crédito comuns eram desvinculadas automaticamente para nunca bloquear a remoção do salário, já que seu vínculo de período vinha do mês da fatura. Agora que o `periodId` de uma `Transaction` comum **ativa** reflete a data real em que o gasto foi feito (ver seção 7), desvincular essa transação ao deletar o salário deixaria de fazer sentido — apagaria o registro de quando o dinheiro foi efetivamente gasto. Por isso, `CREDIT` **ativo** passa a se comportar como `DEBIT`/`PIX` **ativo** aqui: **bloqueia a remoção**. As duas exceções que continuam sendo desvinculadas automaticamente são: (1) parcelas de `FixedExpense`, porque seu vínculo é estrutural ao calendário de pagamento da parcela e não a um gasto pontual já realizado; e (2) qualquer transação já soft-deletada, de qualquer tipo, porque ela não representa mais um evento real para o saldo e existe apenas como linha técnica que precisa ser desvinculada para não violar a constraint de FK no hard delete do período.
+> **Decisão (revisada):** antes, transações de crédito comuns eram desvinculadas automaticamente para nunca bloquear a remoção do salário, já que seu vínculo de período vinha do mês da fatura. Agora que o `periodId` de uma `Transaction` comum **ativa** reflete a data real em que o gasto foi feito (ver seção 7), desvincular essa transação ao deletar o salário deixaria de fazer sentido — apagaria o registro de quando o dinheiro foi efetivamente gasto. Por isso, `CREDIT` **ativo** passa a se comportar como `DEBIT`/`PIX` **ativo** aqui: **bloqueia a remoção**. As duas exceções que continuam sendo desvinculadas automaticamente são: (1) parcelas de `InstallmentExpense`, porque seu vínculo é estrutural ao calendário de pagamento da parcela e não a um gasto pontual já realizado; e (2) qualquer transação já soft-deletada, de qualquer tipo, porque ela não representa mais um evento real para o saldo e existe apenas como linha técnica que precisa ser desvinculada para não violar a constraint de FK no hard delete do período.
 
 **Endpoint:**
 
@@ -437,7 +437,7 @@ PIX em 07/05:
 
 ### Criação
 
-Ao criar um `FixedExpense`, o `FixedExpenseService` deve **automaticamente gerar todas as parcelas** como `Transaction` individuais via `CreateTransactionService` (injeção entre módulos), calculando `billingDate` e `periodId` para cada uma.
+Ao criar um `InstallmentExpense`, o `InstallmentExpenseService` deve **automaticamente gerar todas as parcelas** como `Transaction` individuais via `CreateTransactionService` (injeção entre módulos), calculando `billingDate` e `periodId` para cada uma.
 
 **Algoritmo de geração de parcelas:**
 
@@ -453,14 +453,14 @@ Para i de 0 até totalInstallments - 1:
   Se SalaryPeriod não existir para o mês: periodId = NULL
 
   Criar Transaction com:
-    fixedExpenseId = fixedExpense.id
+    installmentExpenseId = installmentExpense.id
     billingDate    = calculado
     periodId       = calculado (ou NULL)
     amount         = installmentAmount
     description    = "{description} — Parcela {i+1}/{totalInstallments}"
 ```
 
-> **Decisão (ponto 3):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanInstallmentsService` (seção 6) vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado. **Esta é a única situação no sistema em que uma `Transaction` pode nascer com `periodId = NULL`** — parcelas de `FixedExpense` continuam vinculadas pelo mês da própria parcela (`billingDate`), não pela data de criação do gasto fixo, pois representam um compromisso recorrente que se espalha mês a mês.
+> **Decisão (ponto 3):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanInstallmentsService` (seção 6) vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado. **Esta é a única situação no sistema em que uma `Transaction` pode nascer com `periodId = NULL`** — parcelas de `InstallmentExpense` continuam vinculadas pelo mês da própria parcela (`billingDate`), não pela data de criação do gasto parcelado, pois representam um compromisso que se espalha mês a mês até o fim das parcelas.
 
 ### Validações
 
@@ -470,10 +470,10 @@ Para i de 0 até totalInstallments - 1:
 
 ### Soft Delete em Cascata
 
-Ao fazer soft delete em um `FixedExpense`:
+Ao fazer soft delete em um `InstallmentExpense`:
 
-1. Setar `deletedAt` no `FixedExpense`.
-2. Buscar todas as `Transaction` vinculadas (`fixedExpenseId = id`) onde `billingDate >= hoje` e `deletedAt IS NULL`.
+1. Setar `deletedAt` no `InstallmentExpense`.
+2. Buscar todas as `Transaction` vinculadas (`installmentExpenseId = id`) onde `billingDate >= hoje` e `deletedAt IS NULL`.
 3. Setar `deletedAt = now()` nessas transações futuras.
 4. **Não tocar** nas transações passadas (`billingDate < hoje`) — elas são histórico imutável.
 
@@ -513,6 +513,15 @@ Um AsideExpense é ativo em um período P se:
   recurrent = true  → startMonth <= referenceMonth do período P
                       AND (endMonth IS NULL OR endMonth >= referenceMonth do período P)
 ```
+
+### Finalização de Gasto Recorrente (`PATCH /aside-expenses/:id/finish`)
+
+- Define o campo `endMonth`, preservando o histórico: períodos passados (já calculados) continuam recebendo o impacto do `AsideExpense`, e apenas períodos futuros a partir do `endMonth` deixam de contar.
+- **Validação:** só é permitido finalizar um `AsideExpense` com `recurrent = true`. Tentar finalizar um `AsideExpense` com `recurrent = false` deve retornar erro — um gasto não recorrente já se aplica apenas ao seu `startMonth`, então "finalizar" não tem efeito sobre ele.
+- **Validação:** retornar erro se o `AsideExpense` já estiver soft-deletado (`deletedAt IS NOT NULL`).
+- O body aceita `endMonth` (opcional). Se omitido, assume o mês atual como default.
+- **Não é um soft delete.** O registro continua ativo (`deletedAt IS NULL`); apenas passa a ter um limite futuro de aplicação. Por isso, finalizar **não** reescreve o saldo de períodos passados — diferente do soft delete, que ao remover o registro afetaria retroativamente todo o histórico calculado on-the-fly.
+- Finalizar um `AsideExpense` que já possui `endMonth` definido deve sobrescrever o valor anterior (permite adiar ou antecipar o encerramento).
 
 ---
 
@@ -574,8 +583,8 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 **`LinkOrphanInstallmentsService`**
 
-- Deve vincular parcelas de `FixedExpense` com `periodId = NULL` ao período correto pelo `referenceMonth`.
-- Não deve afetar `Transaction` de crédito comum (sem `fixedExpenseId`).
+- Deve vincular parcelas de `InstallmentExpense` com `periodId = NULL` ao período correto pelo `referenceMonth`.
+- Não deve afetar `Transaction` de crédito comum (sem `installmentExpenseId`).
 - Não deve afetar transações de `DEBIT` ou `PIX`.
 - Não deve afetar transações com `periodId` já preenchido.
 
@@ -585,7 +594,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Deve rejeitar remoção se existir salário mais recente que o informado.
 - Deve bloquear remoção se existir transação **ativa** (`deletedAt IS NULL`) de `DEBIT`, `PIX` ou `CREDIT` (não-parcela) vinculada ao período.
 - Não deve bloquear remoção se a única transação `DEBIT`, `PIX` ou `CREDIT` vinculada estiver soft-deletada (`deletedAt` preenchido).
-- Deve desvincular (periodId = NULL) parcelas de `FixedExpense` (ativas ou soft-deletadas) vinculadas ao período antes de deletar.
+- Deve desvincular (periodId = NULL) parcelas de `InstallmentExpense` (ativas ou soft-deletadas) vinculadas ao período antes de deletar.
 - Deve desvincular (periodId = NULL) transações comuns soft-deletadas (`DEBIT`, `PIX`, `CREDIT`) vinculadas ao período antes de deletar, para não violar a constraint de FK no hard delete do `SalaryPeriod`.
 - Deve deletar o `SalaryPeriod` e o `Salary` (hard delete) com sucesso mesmo havendo transações soft-deletadas previamente vinculadas.
 - Deve reabrir o período anterior (`endedAt = NULL`) após a remoção.
@@ -593,7 +602,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 **`UnlinkOrphanInstallmentsService`**
 
-- Deve voltar `periodId` para `NULL` em todas as parcelas de `FixedExpense` (ativas ou soft-deletadas) vinculadas ao período informado.
+- Deve voltar `periodId` para `NULL` em todas as parcelas de `InstallmentExpense` (ativas ou soft-deletadas) vinculadas ao período informado.
 - Deve voltar `periodId` para `NULL` em transações comuns (`DEBIT`, `PIX`, `CREDIT`) **soft-deletadas** vinculadas ao período informado.
 - Não deve afetar transações comuns **ativas** de nenhum tipo (`DEBIT`, `PIX`, `CREDIT`) — essas já são garantidas ausentes pela validação de bloqueio antes deste service ser chamado.
 - Não deve afetar transações de outros períodos.
@@ -615,12 +624,23 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - CRÉDITO, DÉBITO/PIX: compra no dia anterior ao pagamento → período anterior.
 - CRÉDITO, DÉBITO/PIX: sem `SalaryPeriod` vigente (nenhum salário cadastrado ainda) → retornar erro.
 
-**`FixedExpenseService`**
+**`InstallmentExpenseService`**
 
 - Deve gerar exatamente `totalInstallments` transações ao criar.
 - Cada parcela deve ter `billingDate` e `periodId` corretos, vinculados pelo mês da própria parcela.
 - Parcelas sem `SalaryPeriod` devem ser criadas com `periodId = NULL` (nunca rejeitar).
 - Soft delete deve apagar parcelas futuras e preservar passadas.
+
+**`AsideExpenseService` — finalização (`/finish`)**
+
+- Deve definir `endMonth` ao finalizar um `AsideExpense` com `recurrent = true`.
+- Deve assumir o mês atual como `endMonth` quando o body não informar o campo.
+- Deve rejeitar finalização de `AsideExpense` com `recurrent = false`.
+- Deve rejeitar finalização de `AsideExpense` já soft-deletado.
+- Não deve alterar `deletedAt` ao finalizar (registro continua ativo).
+- Deve permitir sobrescrever um `endMonth` já definido anteriormente.
+- Após finalizar, períodos passados (anteriores ao novo `endMonth`) devem continuar somando o `AsideExpense` no cálculo do saldo.
+- Após finalizar, períodos futuros (posteriores ao novo `endMonth`) não devem mais somar o `AsideExpense` no cálculo do saldo.
 
 **`ReportService`**
 
@@ -767,21 +787,22 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 | GET    | `/transactions?billingMonth=2025-05` | Lista por fatura do cartão                         |
 | DELETE | `/transactions/:id`                  | Soft delete                                        |
 
-### Fixed Expenses
+### Installment Expenses
 
-| Método | Rota                  | Descrição                                     |
-| ------ | --------------------- | --------------------------------------------- |
-| POST   | `/fixed-expenses`     | Cria gasto fixo e gera todas as parcelas      |
-| GET    | `/fixed-expenses`     | Lista gastos fixos ativos                     |
-| DELETE | `/fixed-expenses/:id` | Soft delete + soft delete em parcelas futuras |
+| Método | Rota                        | Descrição                                     |
+| ------ | --------------------------- | --------------------------------------------- |
+| POST   | `/installment-expenses`     | Cria gasto parcelado e gera todas as parcelas |
+| GET    | `/installment-expenses`     | Lista gastos parcelados ativos                |
+| DELETE | `/installment-expenses/:id` | Soft delete + soft delete em parcelas futuras |
 
 ### Aside Expenses
 
-| Método | Rota                  | Descrição          |
-| ------ | --------------------- | ------------------ |
-| POST   | `/aside-expenses`     | Cria gasto à parte |
-| GET    | `/aside-expenses`     | Lista ativos       |
-| DELETE | `/aside-expenses/:id` | Soft delete        |
+| Método | Rota                         | Descrição                                                    |
+| ------ | ---------------------------- | ------------------------------------------------------------ |
+| POST   | `/aside-expenses`            | Cria gasto à parte                                           |
+| GET    | `/aside-expenses`            | Lista ativos                                                 |
+| DELETE | `/aside-expenses/:id`        | Soft delete                                                  |
+| PATCH  | `/aside-expenses/:id/finish` | Finaliza um gasto à parte **recorrente** (define `endMonth`) |
 
 ### Reports
 
