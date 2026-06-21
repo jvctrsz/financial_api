@@ -48,7 +48,7 @@ export class DeleteSalaryService {
       const blockingTransaction = await tx.transaction.findFirst({
         where: {
           periodId: periodBeingDeleted.id,
-          fixedExpenseId: null,
+          installmentExpenseId: null,
           deletedAt: null,
           type: {
             in: [

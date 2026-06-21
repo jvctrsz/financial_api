@@ -1,6 +1,6 @@
 export type MockPrismaService = {
   $transaction: jest.Mock;
-  fixedExpense: {
+  installmentExpense: {
     create: jest.Mock;
     findMany: jest.Mock;
     findFirst: jest.Mock;
@@ -26,7 +26,7 @@ export type MockPrismaService = {
 export const makePrisma = (): MockPrismaService => {
   const prisma = {
     $transaction: jest.fn(),
-    fixedExpense: {
+    installmentExpense: {
       create: jest.fn(),
       findMany: jest.fn(),
       findFirst: jest.fn(),

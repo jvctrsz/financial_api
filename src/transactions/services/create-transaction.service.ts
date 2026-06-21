@@ -7,11 +7,11 @@ import { CreateTransactionDto } from '../dto/create-transaction.dto';
 
 type PrismaTransactionClient = PrismaService | Prisma.TransactionClient;
 
-type CreateFixedExpenseInstallmentParams = {
+type CreateInstallmentExpenseInstallmentParams = {
   userId: string;
   categoryId: string;
   cardId: string | null;
-  fixedExpenseId: string;
+  installmentExpenseId: string;
   periodId: string | null;
   type: TransactionType;
   amount: number;
@@ -50,13 +50,13 @@ export class CreateTransactionService {
     });
   };
 
-  createFixedExpenseInstallment = async (
-    params: CreateFixedExpenseInstallmentParams,
+  createInstallmentExpenseInstallment = async (
+    params: CreateInstallmentExpenseInstallmentParams,
     prismaClient: PrismaTransactionClient = this.prisma,
   ) => {
-    if (!params.fixedExpenseId) {
+    if (!params.installmentExpenseId) {
       throw new BadRequestException(
-        'Parcela de gasto fixo deve possuir fixedExpenseId.',
+        'Parcela de gasto parcelado deve possuir installmentExpenseId.',
       );
     }
 
@@ -65,7 +65,7 @@ export class CreateTransactionService {
         userId: params.userId,
         categoryId: params.categoryId,
         cardId: params.cardId,
-        fixedExpenseId: params.fixedExpenseId,
+        installmentExpenseId: params.installmentExpenseId,
         periodId: params.periodId,
         type: params.type,
         amount: params.amount,

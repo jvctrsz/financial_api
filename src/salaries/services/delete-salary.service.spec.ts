@@ -141,7 +141,7 @@ describe('DeleteSalaryService', () => {
       expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
         where: {
           periodId: 'period-june',
-          fixedExpenseId: null,
+          installmentExpenseId: null,
           deletedAt: null,
           type: {
             in: [
@@ -173,7 +173,7 @@ describe('DeleteSalaryService', () => {
       expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
         where: {
           periodId: 'period-june',
-          fixedExpenseId: null,
+          installmentExpenseId: null,
           deletedAt: null,
           type: {
             in: [

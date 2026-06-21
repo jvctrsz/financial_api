@@ -23,7 +23,7 @@ export class LinkOrphanInstallmentsService {
     return prismaClient.transaction.updateMany({
       where: {
         userId,
-        fixedExpenseId: {
+        installmentExpenseId: {
           not: null,
         },
         periodId: null,

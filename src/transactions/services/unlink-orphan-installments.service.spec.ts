@@ -26,7 +26,7 @@ describe('UnlinkOrphanInstallmentsService', () => {
         periodId: 'period-june',
         OR: [
           {
-            fixedExpenseId: {
+            installmentExpenseId: {
               not: null,
             },
           },
@@ -72,7 +72,7 @@ describe('UnlinkOrphanInstallmentsService', () => {
         periodId: 'period-june',
         OR: [
           {
-            fixedExpenseId: {
+            installmentExpenseId: {
               not: null,
             },
           },

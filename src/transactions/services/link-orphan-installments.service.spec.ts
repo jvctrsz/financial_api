@@ -16,7 +16,7 @@ describe('LinkOrphanInstallmentsService', () => {
     prisma.transaction.updateMany.mockResolvedValue({ count: 1 });
   });
 
-  it('deve vincular parcelas de FixedExpense orfas do usuario e billingDate informados', async () => {
+  it('deve vincular parcelas de InstallmentExpense orfas do usuario e billingDate informados', async () => {
     await expect(
       service.linkOrphanInstallments({
         userId: 'user-1',
@@ -28,7 +28,7 @@ describe('LinkOrphanInstallmentsService', () => {
     expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
       where: {
         userId: 'user-1',
-        fixedExpenseId: {
+        installmentExpenseId: {
           not: null,
         },
         periodId: null,
@@ -55,7 +55,7 @@ describe('LinkOrphanInstallmentsService', () => {
     });
   });
 
-  it('não deve alterar transações sem fixedExpenseId', async () => {
+  it('não deve alterar transações sem installmentExpenseId', async () => {
     await service.linkOrphanInstallments({
       userId: 'user-1',
       periodId: 'period-june',
@@ -64,7 +64,7 @@ describe('LinkOrphanInstallmentsService', () => {
 
     expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
       where: expect.objectContaining({
-        fixedExpenseId: {
+        installmentExpenseId: {
           not: null,
         },
       }),

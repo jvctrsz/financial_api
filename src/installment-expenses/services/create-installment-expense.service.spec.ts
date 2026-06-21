@@ -3,12 +3,12 @@ import { TransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateTransactionService } from '../../transactions/services/create-transaction.service';
 import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
-import { CreateFixedExpenseService } from './create-fixed-expense.service';
+import { CreateInstallmentExpenseService } from './create-installment-expense.service';
 
-describe('CreateFixedExpenseService', () => {
+describe('CreateInstallmentExpenseService', () => {
   let prisma: MockPrismaService;
   let createTransactionService: CreateTransactionService;
-  let service: CreateFixedExpenseService;
+  let service: CreateInstallmentExpenseService;
 
   const subcategory = {
     id: 'category-1',
@@ -21,8 +21,8 @@ describe('CreateFixedExpenseService', () => {
     userId: 'user-1',
     closingDay: 6,
   };
-  const fixedExpense = {
-    id: 'fixed-expense-1',
+  const installmentExpense = {
+    id: 'installment-expense-1',
     userId: 'user-1',
     categoryId: 'category-1',
     cardId: 'card-1',
@@ -39,14 +39,14 @@ describe('CreateFixedExpenseService', () => {
     createTransactionService = new CreateTransactionService(
       prisma as unknown as PrismaService,
     );
-    service = new CreateFixedExpenseService(
+    service = new CreateInstallmentExpenseService(
       prisma as unknown as PrismaService,
       createTransactionService,
     );
 
     prisma.category.findFirst.mockResolvedValue(subcategory);
     prisma.card.findFirst.mockResolvedValue(card);
-    prisma.fixedExpense.create.mockResolvedValue(fixedExpense);
+    prisma.installmentExpense.create.mockResolvedValue(installmentExpense);
     prisma.salaryPeriod.findFirst.mockResolvedValue(period);
     prisma.transaction.create.mockImplementation(({ data }) =>
       Promise.resolve({
@@ -56,9 +56,9 @@ describe('CreateFixedExpenseService', () => {
     );
   });
 
-  it('deve criar FixedExpense com deletedAt null e gerar exatamente totalInstallments transações', async () => {
+  it('deve criar InstallmentExpense com deletedAt null e gerar exatamente totalInstallments transações', async () => {
     await expect(
-      service.createFixedExpense('user-1', {
+      service.createInstallmentExpense('user-1', {
         description: 'Notebook',
         totalAmount: 900,
         installmentAmount: 300,
@@ -67,10 +67,10 @@ describe('CreateFixedExpenseService', () => {
         categoryId: 'category-1',
         cardId: 'card-1',
       }),
-    ).resolves.toBe(fixedExpense);
+    ).resolves.toBe(installmentExpense);
 
     expect(prisma.$transaction).toHaveBeenCalled();
-    expect(prisma.fixedExpense.create).toHaveBeenCalledWith({
+    expect(prisma.installmentExpense.create).toHaveBeenCalledWith({
       data: {
         userId: 'user-1',
         categoryId: 'category-1',
@@ -86,8 +86,8 @@ describe('CreateFixedExpenseService', () => {
     expect(prisma.transaction.create).toHaveBeenCalledTimes(3);
   });
 
-  it('deve gerar descricoes e preencher fixedExpenseId nas parcelas', async () => {
-    await service.createFixedExpense('user-1', {
+  it('deve gerar descricoes e preencher installmentExpenseId nas parcelas', async () => {
+    await service.createInstallmentExpense('user-1', {
       description: 'Notebook',
       totalAmount: 600,
       installmentAmount: 300,
@@ -99,13 +99,13 @@ describe('CreateFixedExpenseService', () => {
 
     expect(prisma.transaction.create).toHaveBeenNthCalledWith(1, {
       data: expect.objectContaining({
-        fixedExpenseId: 'fixed-expense-1',
+        installmentExpenseId: 'installment-expense-1',
         description: 'Notebook — Parcela 1/2',
       }),
     });
     expect(prisma.transaction.create).toHaveBeenNthCalledWith(2, {
       data: expect.objectContaining({
-        fixedExpenseId: 'fixed-expense-1',
+        installmentExpenseId: 'installment-expense-1',
         description: 'Notebook — Parcela 2/2',
       }),
     });
@@ -114,7 +114,7 @@ describe('CreateFixedExpenseService', () => {
   it('com cardId deve gerar transações CREDIT e calcular billingDate usando closingDay', async () => {
     prisma.card.findFirst.mockResolvedValue({ ...card, closingDay: 1 });
 
-    await service.createFixedExpense('user-1', {
+    await service.createInstallmentExpense('user-1', {
       description: 'Notebook',
       totalAmount: 300,
       installmentAmount: 300,
@@ -134,7 +134,7 @@ describe('CreateFixedExpenseService', () => {
   });
 
   it('sem cardId deve gerar transações DEBIT com cardId null e billingDate igual ao baseDate', async () => {
-    await service.createFixedExpense('user-1', {
+    await service.createInstallmentExpense('user-1', {
       description: 'Curso',
       totalAmount: 600,
       installmentAmount: 300,
@@ -161,7 +161,7 @@ describe('CreateFixedExpenseService', () => {
   });
 
   it('deve preencher periodId quando existir SalaryPeriod para o billingDate', async () => {
-    await service.createFixedExpense('user-1', {
+    await service.createInstallmentExpense('user-1', {
       description: 'Notebook',
       totalAmount: 300,
       installmentAmount: 300,
@@ -187,7 +187,7 @@ describe('CreateFixedExpenseService', () => {
   it('deve criar parcela com periodId null quando não existir SalaryPeriod', async () => {
     prisma.salaryPeriod.findFirst.mockResolvedValue(null);
 
-    await service.createFixedExpense('user-1', {
+    await service.createInstallmentExpense('user-1', {
       description: 'Notebook',
       totalAmount: 300,
       installmentAmount: 300,
@@ -208,7 +208,7 @@ describe('CreateFixedExpenseService', () => {
     prisma.category.findFirst.mockResolvedValue(null);
 
     await expect(
-      service.createFixedExpense('user-1', {
+      service.createInstallmentExpense('user-1', {
         description: 'Notebook',
         totalAmount: 300,
         installmentAmount: 300,
@@ -225,7 +225,7 @@ describe('CreateFixedExpenseService', () => {
         deletedAt: null,
       },
     });
-    expect(prisma.fixedExpense.create).not.toHaveBeenCalled();
+    expect(prisma.installmentExpense.create).not.toHaveBeenCalled();
   });
 
   it('deve rejeitar categoria raiz', async () => {
@@ -235,7 +235,7 @@ describe('CreateFixedExpenseService', () => {
     });
 
     await expect(
-      service.createFixedExpense('user-1', {
+      service.createInstallmentExpense('user-1', {
         description: 'Notebook',
         totalAmount: 300,
         installmentAmount: 300,
@@ -250,7 +250,7 @@ describe('CreateFixedExpenseService', () => {
     prisma.card.findFirst.mockResolvedValue(null);
 
     await expect(
-      service.createFixedExpense('user-1', {
+      service.createInstallmentExpense('user-1', {
         description: 'Notebook',
         totalAmount: 300,
         installmentAmount: 300,
@@ -271,7 +271,7 @@ describe('CreateFixedExpenseService', () => {
 
   it('deve rejeitar startMonth que não seja primeiro dia do mes', async () => {
     await expect(
-      service.createFixedExpense('user-1', {
+      service.createInstallmentExpense('user-1', {
         description: 'Notebook',
         totalAmount: 300,
         installmentAmount: 300,
@@ -284,7 +284,7 @@ describe('CreateFixedExpenseService', () => {
 
   it('deve rejeitar quando installmentAmount vezes totalInstallments diverge de totalAmount', async () => {
     await expect(
-      service.createFixedExpense('user-1', {
+      service.createInstallmentExpense('user-1', {
         description: 'Notebook',
         totalAmount: 1000,
         installmentAmount: 300,

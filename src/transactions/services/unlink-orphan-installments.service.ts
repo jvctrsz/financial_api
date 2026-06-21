@@ -23,7 +23,7 @@ export class UnlinkOrphanInstallmentsService {
         periodId,
         OR: [
           {
-            fixedExpenseId: {
+            installmentExpenseId: {
               not: null,
             },
           },

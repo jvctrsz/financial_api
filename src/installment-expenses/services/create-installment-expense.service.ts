@@ -8,18 +8,21 @@ import {
 } from '../../salaries/utils/date-only.util';
 import { calculateCreditBillingDate } from '../../shared/helpers/billing-date.helper';
 import { CreateTransactionService } from '../../transactions/services/create-transaction.service';
-import { CreateFixedExpenseDto } from '../dto/create-fixed-expense.dto';
+import { CreateInstallmentExpenseDto } from '../dto/create-installment-expense.dto';
 
 const toCents = (value: number): number => Math.round(value * 100);
 
 @Injectable()
-export class CreateFixedExpenseService {
+export class CreateInstallmentExpenseService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly createTransactionService: CreateTransactionService,
   ) {}
 
-  createFixedExpense = async (userId: string, dto: CreateFixedExpenseDto) => {
+  createInstallmentExpense = async (
+    userId: string,
+    dto: CreateInstallmentExpenseDto,
+  ) => {
     const startMonth = parseDateOnly(dto.startMonth);
 
     this.validateStartMonth(startMonth);
@@ -29,7 +32,7 @@ export class CreateFixedExpenseService {
     const card = dto.cardId ? await this.findCard(userId, dto.cardId) : null;
 
     return this.prisma.$transaction(async (tx) => {
-      const fixedExpense = await tx.fixedExpense.create({
+      const installmentExpense = await tx.installmentExpense.create({
         data: {
           userId,
           categoryId: category.id,
@@ -57,12 +60,12 @@ export class CreateFixedExpenseService {
           },
         });
 
-        await this.createTransactionService.createFixedExpenseInstallment(
+        await this.createTransactionService.createInstallmentExpenseInstallment(
           {
             userId,
             categoryId: category.id,
             cardId: card?.id ?? null,
-            fixedExpenseId: fixedExpense.id,
+            installmentExpenseId: installmentExpense.id,
             periodId: period?.id ?? null,
             type,
             amount: dto.installmentAmount,
@@ -74,7 +77,7 @@ export class CreateFixedExpenseService {
         );
       }
 
-      return fixedExpense;
+      return installmentExpense;
     });
   };
 
@@ -89,7 +92,7 @@ export class CreateFixedExpenseService {
 
     if (!category || category.parentId === null) {
       throw new BadRequestException(
-        'Gasto fixo deve referenciar uma subcategoria válida.',
+        'Gasto parcelado deve referenciar uma subcategoria válida.',
       );
     }
 
@@ -119,7 +122,7 @@ export class CreateFixedExpenseService {
     }
   };
 
-  private validateInstallmentTotal = (dto: CreateFixedExpenseDto) => {
+  private validateInstallmentTotal = (dto: CreateInstallmentExpenseDto) => {
     const totalInCents = toCents(dto.totalAmount);
     const installmentsInCents =
       toCents(dto.installmentAmount) * dto.totalInstallments;

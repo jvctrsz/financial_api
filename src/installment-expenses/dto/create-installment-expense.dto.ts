@@ -9,7 +9,7 @@ import {
   Min,
 } from 'class-validator';
 
-export class CreateFixedExpenseDto {
+export class CreateInstallmentExpenseDto {
   @IsString()
   @IsNotEmpty()
   description: string;

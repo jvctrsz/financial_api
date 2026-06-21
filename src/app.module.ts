@@ -4,7 +4,7 @@ import { AsideExpensesModule } from './aside-expenses/aside-expenses.module';
 import { AuthModule } from './auth/auth.module';
 import { CardsModule } from './cards/cards.module';
 import { CategoriesModule } from './categories/categories.module';
-import { FixedExpensesModule } from './fixed-expenses/fixed-expenses.module';
+import { InstallmentExpensesModule } from './installment-expenses/installment-expenses.module';
 import { IncomesModule } from './incomes/incomes.module';
 import { ReportsModule } from './reports/reports.module';
 import { SalariesModule } from './salaries/salaries.module';
@@ -24,7 +24,7 @@ import { UsersModule } from './users/users.module';
     IncomesModule,
     UsersModule,
     AsideExpensesModule,
-    FixedExpensesModule,
+    InstallmentExpensesModule,
     ReportsModule,
   ],
 })

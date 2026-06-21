@@ -3,35 +3,38 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { todayAsUtcDateOnly } from '../../salaries/utils/date-only.util';
 
 @Injectable()
-export class DeleteFixedExpenseService {
+export class DeleteInstallmentExpenseService {
   constructor(private readonly prisma: PrismaService) {}
 
-  deleteFixedExpense = async (userId: string, fixedExpenseId: string) => {
+  deleteInstallmentExpense = async (
+    userId: string,
+    installmentExpenseId: string,
+  ) => {
     const today = todayAsUtcDateOnly();
 
     return this.prisma.$transaction(async (tx) => {
-      const fixedExpense = await tx.fixedExpense.findFirst({
+      const installmentExpense = await tx.installmentExpense.findFirst({
         where: {
-          id: fixedExpenseId,
+          id: installmentExpenseId,
           userId,
           deletedAt: null,
         },
       });
 
-      if (!fixedExpense) {
-        throw new NotFoundException('Gasto fixo não encontrado.');
+      if (!installmentExpense) {
+        throw new NotFoundException('Gasto parcelado não encontrado.');
       }
 
       const deletedAt = new Date();
 
-      const deletedFixedExpense = await tx.fixedExpense.update({
-        where: { id: fixedExpense.id },
+      const deletedInstallmentExpense = await tx.installmentExpense.update({
+        where: { id: installmentExpense.id },
         data: { deletedAt },
       });
 
       await tx.transaction.updateMany({
         where: {
-          fixedExpenseId: fixedExpense.id,
+          installmentExpenseId: installmentExpense.id,
           userId,
           deletedAt: null,
           billingDate: {
@@ -43,7 +46,7 @@ export class DeleteFixedExpenseService {
         },
       });
 
-      return deletedFixedExpense;
+      return deletedInstallmentExpense;
     });
   };
 }

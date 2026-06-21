@@ -1,5 +1,6 @@
 import { AsideExpensesController } from './aside-expenses.controller';
 import { CreateAsideExpenseDto } from './dto/create-aside-expense.dto';
+import { FinishAsideExpenseDto } from './dto/finish-aside-expense.dto';
 
 describe('AsideExpensesController', () => {
   let createAsideExpenseService: {
@@ -10,6 +11,9 @@ describe('AsideExpensesController', () => {
   };
   let deleteAsideExpenseService: {
     deleteAsideExpense: jest.Mock;
+  };
+  let finishAsideExpenseService: {
+    finishAsideExpense: jest.Mock;
   };
   let controller: AsideExpensesController;
 
@@ -30,10 +34,14 @@ describe('AsideExpensesController', () => {
     deleteAsideExpenseService = {
       deleteAsideExpense: jest.fn(),
     };
+    finishAsideExpenseService = {
+      finishAsideExpense: jest.fn(),
+    };
     controller = new AsideExpensesController(
       createAsideExpenseService as never,
       findAllAsideExpensesService as never,
       deleteAsideExpenseService as never,
+      finishAsideExpenseService as never,
     );
   });
 
@@ -48,9 +56,10 @@ describe('AsideExpensesController', () => {
     createAsideExpenseService.createAsideExpense.mockReturnValue(asideExpense);
 
     expect(controller.create(request, dto)).toBe(asideExpense);
-    expect(
-      createAsideExpenseService.createAsideExpense,
-    ).toHaveBeenCalledWith('user-1', dto);
+    expect(createAsideExpenseService.createAsideExpense).toHaveBeenCalledWith(
+      'user-1',
+      dto,
+    );
   });
 
   it('deve chamar FindAllAsideExpensesService.findAllAsideExpenses no GET /aside-expenses', () => {
@@ -72,8 +81,30 @@ describe('AsideExpensesController', () => {
     deleteAsideExpenseService.deleteAsideExpense.mockReturnValue(asideExpense);
 
     expect(controller.delete(request, 'aside-expense-1')).toBe(asideExpense);
-    expect(
-      deleteAsideExpenseService.deleteAsideExpense,
-    ).toHaveBeenCalledWith('user-1', 'aside-expense-1');
+    expect(deleteAsideExpenseService.deleteAsideExpense).toHaveBeenCalledWith(
+      'user-1',
+      'aside-expense-1',
+    );
+  });
+
+  it('deve chamar FinishAsideExpenseService.finishAsideExpense no PATCH /aside-expenses/:id/finish', () => {
+    const dto: FinishAsideExpenseDto = {
+      endMonth: '2025-08-15',
+    };
+    const asideExpense = {
+      id: 'aside-expense-1',
+      endMonth: new Date('2025-08-01T00:00:00.000Z'),
+    };
+
+    finishAsideExpenseService.finishAsideExpense.mockReturnValue(asideExpense);
+
+    expect(controller.finish(request, 'aside-expense-1', dto)).toBe(
+      asideExpense,
+    );
+    expect(finishAsideExpenseService.finishAsideExpense).toHaveBeenCalledWith(
+      'user-1',
+      'aside-expense-1',
+      dto,
+    );
   });
 });

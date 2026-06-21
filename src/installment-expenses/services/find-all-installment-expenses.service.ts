@@ -2,11 +2,11 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
-export class FindAllFixedExpensesService {
+export class FindAllInstallmentExpensesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAllFixedExpenses = async (userId: string) => {
-    return this.prisma.fixedExpense.findMany({
+  findAllInstallmentExpenses = async (userId: string) => {
+    return this.prisma.installmentExpense.findMany({
       where: {
         userId,
         deletedAt: null,
