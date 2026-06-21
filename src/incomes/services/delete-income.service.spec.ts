@@ -81,7 +81,7 @@ describe('DeleteIncomeService', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('nao deve remover fisicamente o registro', async () => {
+  it('não deve remover fisicamente o registro', async () => {
     prisma.income.findFirst.mockResolvedValue({ id: 'income-1' });
     prisma.income.update.mockResolvedValue({ id: 'income-1' });
 

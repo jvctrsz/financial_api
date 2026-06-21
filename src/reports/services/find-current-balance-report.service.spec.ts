@@ -42,7 +42,7 @@ describe('FindCurrentBalanceReportService', () => {
       BadRequestException,
     );
     await expect(service.findCurrentBalance('user-1')).rejects.toThrow(
-      'Nenhum periodo financeiro encontrado. Cadastre um salario antes de consultar o saldo.',
+      'Nenhum período financeiro encontrado. Cadastre um salário antes de consultar o saldo.',
     );
   });
 
@@ -108,7 +108,7 @@ describe('FindCurrentBalanceReportService', () => {
     );
   });
 
-  it('deve retornar available = salary.amount quando nao houver transações, entradas ou gastos a parte', async () => {
+  it('deve retornar available = salary.amount quando não houver transações, entradas ou gastos a parte', async () => {
     await expect(service.findCurrentBalance('user-1')).resolves.toEqual({
       available: 5000,
       periodId: 'period-1',
@@ -206,7 +206,7 @@ describe('FindCurrentBalanceReportService', () => {
     );
   });
 
-  it('deve somar AsideExpense nao recorrente apenas quando startMonth = referenceMonth', async () => {
+  it('deve somar AsideExpense não recorrente apenas quando startMonth = referenceMonth', async () => {
     await service.findCurrentBalance('user-1');
 
     expect(prisma.asideExpense.aggregate).toHaveBeenCalledWith(

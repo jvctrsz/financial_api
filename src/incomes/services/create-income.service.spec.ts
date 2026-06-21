@@ -61,7 +61,7 @@ describe('CreateIncomeService', () => {
     });
   });
 
-  it('deve criar entrada com includeInBalance false quando o campo nao for enviado', async () => {
+  it('deve criar entrada com includeInBalance false quando o campo não for enviado', async () => {
     prisma.income.create.mockResolvedValue({ id: 'income-1' });
 
     await service.createIncome('user-1', {
@@ -123,13 +123,13 @@ describe('CreateIncomeService', () => {
     });
   });
 
-  it('nao deve depender de Salary, SalaryPeriod, Transaction ou preferencias', async () => {
+  it('não deve depender de Salary, SalaryPeriod, Transaction ou preferencias', async () => {
     prisma.income.create.mockResolvedValue({ id: 'income-1' });
 
     await service.createIncome('user-1', {
-        amount: 300,
-        description: 'Bonus',
-        month: '2025-08-10',
+      amount: 300,
+      description: 'Bonus',
+      month: '2025-08-10',
     });
 
     expect(prisma.salary?.findFirst).not.toHaveBeenCalled();

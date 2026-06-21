@@ -140,7 +140,7 @@ describe('CreateCategoryService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('nao deve usar userId vindo do body', async () => {
+  it('não deve usar userId vindo do body', async () => {
     prisma.category.create.mockResolvedValue({ id: 'category-1' });
 
     await service.createCategory('user-1', {

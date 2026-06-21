@@ -1,11 +1,24 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Card, TransactionType } from '@prisma/client';
+import { Card, Prisma, TransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  firstDayOfUtcMonth,
-  parseDateOnly,
-} from '../../salaries/utils/date-only.util';
+import { parseDateOnly } from '../../salaries/utils/date-only.util';
+import { calculateCreditBillingDate } from '../../shared/helpers/billing-date.helper';
 import { CreateTransactionDto } from '../dto/create-transaction.dto';
+
+type PrismaTransactionClient = PrismaService | Prisma.TransactionClient;
+
+type CreateFixedExpenseInstallmentParams = {
+  userId: string;
+  categoryId: string;
+  cardId: string | null;
+  fixedExpenseId: string;
+  periodId: string | null;
+  type: TransactionType;
+  amount: number;
+  description: string;
+  transactionDate: Date;
+  billingDate: Date;
+};
 
 @Injectable()
 export class CreateTransactionService {
@@ -33,6 +46,33 @@ export class CreateTransactionService {
         description: dto.description,
         transactionDate,
         billingDate,
+      },
+    });
+  };
+
+  createFixedExpenseInstallment = async (
+    params: CreateFixedExpenseInstallmentParams,
+    prismaClient: PrismaTransactionClient = this.prisma,
+  ) => {
+    if (!params.fixedExpenseId) {
+      throw new BadRequestException(
+        'Parcela de gasto fixo deve possuir fixedExpenseId.',
+      );
+    }
+
+    return prismaClient.transaction.create({
+      data: {
+        userId: params.userId,
+        categoryId: params.categoryId,
+        cardId: params.cardId,
+        fixedExpenseId: params.fixedExpenseId,
+        periodId: params.periodId,
+        type: params.type,
+        amount: params.amount,
+        description: params.description,
+        transactionDate: params.transactionDate,
+        billingDate: params.billingDate,
+        deletedAt: null,
       },
     });
   };
@@ -116,17 +156,7 @@ export class CreateTransactionService {
       throw new BadRequestException('Cartão não encontrado.');
     }
 
-    if (transactionDate.getUTCDate() < card.closingDay) {
-      return firstDayOfUtcMonth(transactionDate);
-    }
-
-    return new Date(
-      Date.UTC(
-        transactionDate.getUTCFullYear(),
-        transactionDate.getUTCMonth() + 1,
-        1,
-      ),
-    );
+    return calculateCreditBillingDate(transactionDate, card.closingDay);
   };
 
   private resolvePeriod = async (userId: string, transactionDate: Date) => {

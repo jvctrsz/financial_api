@@ -38,7 +38,7 @@ describe('ReportsController', () => {
     ).toHaveBeenCalledWith('user-1');
   });
 
-  it('nao deve aceitar userId por query, body ou params', () => {
+  it('não deve aceitar userId por query, body ou params', () => {
     const requestWithInjectedUserId = {
       user: {
         id: 'user-1',
