@@ -14,6 +14,7 @@
 6. [Salários e Períodos Financeiros](#6-salários-e-períodos-financeiros)
 7. [Transações](#7-transações)
 8. [Gastos Fixos Parcelados](#8-gastos-fixos-parcelados)
+   8.1. [Gastos Fixos Recorrentes](#81-gastos-fixos-recorrentes)
 9. [Entradas Mensais](#9-entradas-mensais)
 10. [Gastos à Parte](#10-gastos-à-parte)
 11. [Relatórios e Cálculo de Saldo](#11-relatórios-e-cálculo-de-saldo)
@@ -51,6 +52,8 @@ Os seguintes recursos são **imutáveis** — uma vez criados, não podem ser ed
 
 Esses models **não possuem** `updatedAt`. A ausência do campo é intencional. Endpoints `PATCH` ou `PUT` **não devem existir** para esses recursos. Para corrigir um registro, o usuário deve apagar (soft delete) e criar um novo.
 
+> **Exceção única:** `PATCH /transactions/:id/pay` (seção 8.1) é o único endpoint de mutação permitido sobre `Transaction`, e está restrito exclusivamente ao campo `paid` — usado para marcar como paga uma ocorrência de `FixedExpense` via PIX/DÉBITO. Não altera nenhum outro campo, não afeta `billingDate`, `periodId` ou o cálculo de saldo, e não estabelece precedente para outras edições de `Transaction`.
+
 ### Soft Delete
 
 Os seguintes recursos usam soft delete via campo `deletedAt`:
@@ -58,6 +61,7 @@ Os seguintes recursos usam soft delete via campo `deletedAt`:
 - `Transaction`
 - `Income`
 - `InstallmentExpense`
+- `FixedExpense`
 - `AsideExpense`
 - `Category` (raiz e subcategoria) — ver seção 4
 
@@ -245,6 +249,7 @@ O `CreateSalaryService` executa os seguintes passos em ordem:
 3. Atualizar o `endedAt` desse período para `novoSalary.paidAt - 1 dia`.
 4. Criar o novo `SalaryPeriod` com `endedAt = NULL`.
 5. Chamar `LinkOrphanInstallmentsService` passando o `periodId` recém-criado e o `referenceMonth`.
+6. Chamar `GenerateFixedExpenseTransactionsService` passando o `periodId` recém-criado — gera uma `Transaction` para cada `FixedExpense` ativo do usuário (`deletedAt IS NULL` e, se `endMonth` estiver definido, `endMonth >= referenceMonth` do novo período). Ver seção 8.1.
 
 > **Nota:** este passo 5 só tem efeito sobre parcelas de `InstallmentExpense` (ver seção 8). Transações de crédito comuns (`Transaction`) nunca ficam órfãs — seu `periodId` é resolvido pela data real da compra no momento da criação (ver seção 7), então não há nada para religar aqui.
 
@@ -256,7 +261,7 @@ Service dedicado, chamado pelo `CreateSalaryService` após criar o novo `SalaryP
 UPDATE transactions
 SET period_id = :periodId
 WHERE user_id = :userId
-  AND fixed_expense_id IS NOT NULL
+  AND installment_expense_id IS NOT NULL
   AND period_id IS NULL
   AND billing_date = :referenceMonth
 ```
@@ -304,7 +309,7 @@ UPDATE transactions
 SET period_id = NULL
 WHERE period_id = :periodId
   AND (
-    fixed_expense_id IS NOT NULL
+    installment_expense_id IS NOT NULL
     OR deleted_at IS NOT NULL
   )
 ```
@@ -460,7 +465,7 @@ Para i de 0 até totalInstallments - 1:
     description    = "{description} — Parcela {i+1}/{totalInstallments}"
 ```
 
-> **Decisão (ponto 3):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanInstallmentsService` (seção 6) vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado. **Esta é a única situação no sistema em que uma `Transaction` pode nascer com `periodId = NULL`** — parcelas de `InstallmentExpense` continuam vinculadas pelo mês da própria parcela (`billingDate`), não pela data de criação do gasto parcelado, pois representam um compromisso que se espalha mês a mês até o fim das parcelas.
+> **Decisão (ponto 3):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanInstallmentsService` (seção 6) vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado. **No momento desta seção, esta é a única situação no sistema em que uma `Transaction` pode nascer com `periodId = NULL`** — parcelas de `InstallmentExpense` continuam vinculadas pelo mês da própria parcela (`billingDate`), não pela data de criação do gasto parcelado, pois representam um compromisso que se espalha mês a mês até o fim das parcelas. (`FixedExpense`, seção 8.1, nunca gera órfão, pois sua geração é sempre disparada por um `SalaryPeriod` já existente.)
 
 ### Validações
 
@@ -476,6 +481,76 @@ Ao fazer soft delete em um `InstallmentExpense`:
 2. Buscar todas as `Transaction` vinculadas (`installmentExpenseId = id`) onde `billingDate >= hoje` e `deletedAt IS NULL`.
 3. Setar `deletedAt = now()` nessas transações futuras.
 4. **Não tocar** nas transações passadas (`billingDate < hoje`) — elas são histórico imutável.
+
+---
+
+## 8.1 Gastos Fixos Recorrentes
+
+Diferente do `InstallmentExpense` (seção 8), o `FixedExpense` representa um gasto recorrente **sem fim contado** (aluguel, internet, assinatura) — não tem `totalInstallments`, e gera uma `Transaction` por período financeiro, indefinidamente, até ser finalizado ou removido.
+
+### Campos do Model
+
+- `id`, `userId`, `name`, `amount`, `categoryId`.
+- `paymentMethod`: `CREDIT`, `DEBIT` ou `PIX`.
+- `cardId?`: obrigatório se `paymentMethod = CREDIT`; deve ser nulo caso contrário (mesma validação de `Transaction`, seção 7).
+- `endMonth?`: nullable. Define o último período em que o gasto deve gerar `Transaction`. Ausente = recorrência indefinida.
+- `deletedAt?`: soft delete.
+
+> `startInCurrentPeriod` (booleano) **não é persistido** — é um campo write-only do DTO de criação, usado apenas para decidir se a `Transaction` do período atual é gerada na própria chamada de criação (ver abaixo). Default: `true`.
+
+### Geração de `Transaction` — Estratégia Lazy
+
+Diferente de um job/cron, a geração das `Transaction`s mensais do `FixedExpense` é **disparada pela criação do `SalaryPeriod`**, e não por um agendador externo. Essa escolha é deliberada: os períodos financeiros do sistema são ancorados na data de recebimento do salário (seção 6), não no calendário — um cron de calendário não teria como prever, de forma confiável, quando cada usuário inicia seu próximo período. Gerar a `Transaction` no mesmo momento em que o período nasce elimina esse problema de sincronização e não exige infraestrutura de agendamento.
+
+**`GenerateFixedExpenseTransactionsService`** — service dedicado, chamado pelo `CreateSalaryService` (passo 6, seção 6) após a criação do novo `SalaryPeriod`. Responsabilidade única: para cada `FixedExpense` ativo do usuário (`deletedAt IS NULL`, e `endMonth IS NULL OR endMonth >= referenceMonth` do novo período), criar uma `Transaction` vinculada ao `periodId` recém-criado, via `CreateTransactionService` (injeção entre módulos, mesmo padrão do `InstallmentExpenseService`).
+
+> **Sem cenário de órfão:** diferente do `InstallmentExpense`, o `FixedExpense` nunca gera `Transaction` com `periodId = NULL`. A geração só é disparada quando o `SalaryPeriod` já existe (seja pelo fluxo lazy do `CreateSalaryService`, seja pela criação do próprio `FixedExpense` com `startInCurrentPeriod = true` — ver abaixo), então o vínculo já nasce resolvido.
+
+### Criação — `CreateFixedExpenseService`
+
+1. Criar o registro em `FixedExpense`.
+2. Se `startInCurrentPeriod = true` (default quando omitido): buscar o `SalaryPeriod` vigente do usuário (`endedAt IS NULL` ou cobrindo hoje) e gerar imediatamente a `Transaction` desse período, reaproveitando a mesma lógica do `GenerateFixedExpenseTransactionsService`.
+3. Se `startInCurrentPeriod = false`: não gerar nenhuma `Transaction` agora. A primeira ocorrência só nasce quando o próximo `SalaryPeriod` for criado.
+
+> Se não existir nenhum `SalaryPeriod` (usuário sem salário cadastrado) e `startInCurrentPeriod = true`, retornar erro orientando o cadastro do salário antes de criar um `FixedExpense` — mesmo comportamento de ausência de período já adotado em `Transaction` (seção 7).
+
+### Campo `paid` — Status de Pagamento por Ocorrência
+
+O campo `paid` (`boolean?`, nullable) vive na `Transaction`, não no `FixedExpense` — o status é por ocorrência mensal, não um status único do gasto fixo.
+
+- **Toda `Transaction` que nasce de um `FixedExpense` via `PIX` ou `DEBIT`**: `paid` nasce `false`.
+- **Toda `Transaction` que nasce de um `FixedExpense` via `CREDIT`**: `paid` nasce `null` — o conceito de "pago" não se aplica individualmente, pois o pagamento é resolvido no nível da fatura do cartão (seção 7), não da transação isolada.
+- **Qualquer outra `Transaction` do sistema** (não originada de `FixedExpense`, incluindo parcelas de `InstallmentExpense` e transações comuns): `paid` é sempre `null`.
+
+> `null` aqui significa **"este conceito não se aplica a este registro"** — não deve ser interpretado como "não pago". Apenas `false` representa um pagamento PIX/DÉBITO pendente.
+
+**Por que a `Transaction` já nasce contando no saldo, independente de `paid`:** um gasto fixo (aluguel, por exemplo) é um compromisso certo do período, não opcional. Tratá-lo como "fora do saldo até confirmar pagamento" criaria a falsa impressão de saldo disponível maior do que o real. O campo `paid` é **apenas informativo/visual** — não interfere em nenhum cálculo da seção 11.
+
+### Marcar como Pago — `PATCH /transactions/:id/pay`
+
+> **Excepciona a regra de imutabilidade de `Transaction` (seção 2 e seção 7).** Esta é a única mutação permitida em uma `Transaction` já criada, e está restrita exclusivamente ao campo `paid`.
+
+- Valida que a `Transaction` pertence ao `userId` autenticado.
+- Valida que `Transaction.paid IS NOT NULL` — caso contrário, retornar erro (a transação não é uma ocorrência de `FixedExpense` via PIX/DÉBITO, então não tem o que marcar como paga).
+- Valida que a `Transaction` não está soft-deletada.
+- Define `paid = true`. Não possui efeito sobre `billingDate`, `periodId` ou o cálculo de saldo.
+
+### Validações
+
+- `categoryId` deve ser subcategoria do `userId`.
+- `cardId` obrigatório se `paymentMethod = CREDIT`; deve ser nulo caso contrário.
+- Se `paymentMethod = CREDIT` e nenhum `cardId` for informado, usar o cartão padrão do usuário (mesmo fallback de `Transaction`, seção 7).
+
+### Soft Delete em Cascata
+
+Ao fazer soft delete em um `FixedExpense`:
+
+1. Setar `deletedAt` no `FixedExpense`.
+2. Buscar todas as `Transaction` vinculadas a esse `FixedExpense` onde `billingDate >= hoje` e `deletedAt IS NULL`.
+3. Setar `deletedAt = now()` nessas transações futuras.
+4. **Não tocar** nas transações passadas — histórico imutável, preservado mesmo após o encerramento do gasto fixo.
+
+> Não existe endpoint `/finish` para `FixedExpense` (diferente do `AsideExpense` recorrente, seção 10.1) — o soft delete em cascata já preserva o histórico passado e interrompe a geração futura, cobrindo o mesmo objetivo sem precisar de um campo `endMonth` mutável.
 
 ---
 
@@ -536,6 +611,8 @@ Saldo Disponível do Período P =
   - SUM(transactions do período P onde deletedAt IS NULL)
   - SUM(asideExpenses ativos no período P onde deletedAt IS NULL)
 ```
+
+> **`FixedExpense` não aparece como termo próprio na fórmula.** Assim como o `InstallmentExpense`, ele gera `Transaction`s reais (seção 8.1), que já são somadas pelo termo `SUM(transactions do período P)`. O campo `paid` da `Transaction` (pago/não pago) **não é considerado** neste cálculo — é puramente informativo.
 
 ### Visões disponíveis
 
@@ -631,6 +708,26 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Parcelas sem `SalaryPeriod` devem ser criadas com `periodId = NULL` (nunca rejeitar).
 - Soft delete deve apagar parcelas futuras e preservar passadas.
 
+**`FixedExpenseService` (gasto fixo recorrente)**
+
+- Com `startInCurrentPeriod = true` (ou omitido): deve gerar a `Transaction` do período atual na própria criação.
+- Com `startInCurrentPeriod = false`: não deve gerar nenhuma `Transaction` na criação.
+- `paymentMethod = PIX` ou `DEBIT`: a `Transaction` gerada deve nascer com `paid = false`.
+- `paymentMethod = CREDIT`: a `Transaction` gerada deve nascer com `paid = null`.
+- Deve rejeitar criação com `startInCurrentPeriod = true` se o usuário não tiver nenhum `SalaryPeriod` cadastrado.
+- `GenerateFixedExpenseTransactionsService`: ao criar um novo `SalaryPeriod`, deve gerar uma `Transaction` para cada `FixedExpense` ativo do usuário.
+- `GenerateFixedExpenseTransactionsService`: não deve gerar `Transaction` para `FixedExpense` com `endMonth` anterior ao `referenceMonth` do novo período.
+- `GenerateFixedExpenseTransactionsService`: não deve gerar `Transaction` para `FixedExpense` soft-deletado.
+- Soft delete em cascata: deve apagar `Transaction`s futuras (`billingDate >= hoje`) e preservar passadas.
+
+**`TransactionService` — marcar como pago (`/pay`)**
+
+- Deve marcar `paid = true` em uma `Transaction` com `paid = false`.
+- Deve rejeitar marcar como pago uma `Transaction` com `paid = null` (não é ocorrência PIX/DÉBITO de `FixedExpense`).
+- Deve rejeitar marcar como pago uma `Transaction` soft-deletada.
+- Deve rejeitar marcar como pago uma `Transaction` de outro usuário.
+- Não deve alterar `billingDate` ou `periodId` ao marcar como pago.
+
 **`AsideExpenseService` — finalização (`/finish`)**
 
 - Deve definir `endMonth` ao finalizar um `AsideExpense` com `recurrent = true`.
@@ -720,6 +817,8 @@ src/
 └── app.module.ts
 ```
 
+> **Módulo `fixed-expenses`:** segue a mesma estrutura, com `services/create-fixed-expense.service.ts`, `services/generate-fixed-expense-transactions.service.ts` (injetado no `salaries` módulo, mesmo padrão de injeção entre módulos do `LinkOrphanInstallmentsService`) e `services/delete-fixed-expense.service.ts`. O service que marca uma `Transaction` como paga (`PATCH /transactions/:id/pay`) vive no módulo `transactions`, não em `fixed-expenses` — a ação opera sobre o recurso `Transaction`, então pertence ao seu próprio módulo.
+
 ---
 
 ## 14. Endpoints
@@ -768,7 +867,6 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 | GET    | `/salaries`         | Lista histórico de salários                                             |
 | GET    | `/salaries/current` | Retorna salário vigente hoje                                            |
 | DELETE | `/salaries/:id`     | Remove o salário mais recente (hard delete) e reabre o período anterior |
-| DELETE | `/salaries/:id`     | Remove o salário mais recente (hard delete, com validações)             |
 
 ### Incomes
 
@@ -780,12 +878,13 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 
 ### Transactions
 
-| Método | Rota                                 | Descrição                                          |
-| ------ | ------------------------------------ | -------------------------------------------------- |
-| POST   | `/transactions`                      | Registra gasto (billingDate e periodId calculados) |
-| GET    | `/transactions?periodId=uuid`        | Lista por período financeiro                       |
-| GET    | `/transactions?billingMonth=2025-05` | Lista por fatura do cartão                         |
-| DELETE | `/transactions/:id`                  | Soft delete                                        |
+| Método | Rota                                 | Descrição                                                 |
+| ------ | ------------------------------------ | --------------------------------------------------------- |
+| POST   | `/transactions`                      | Registra gasto (billingDate e periodId calculados)        |
+| GET    | `/transactions?periodId=uuid`        | Lista por período financeiro                              |
+| GET    | `/transactions?billingMonth=2025-05` | Lista por fatura do cartão                                |
+| DELETE | `/transactions/:id`                  | Soft delete                                               |
+| PATCH  | `/transactions/:id/pay`              | Marca como paga (somente Transaction com `paid` não nulo) |
 
 ### Installment Expenses
 
@@ -794,6 +893,14 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 | POST   | `/installment-expenses`     | Cria gasto parcelado e gera todas as parcelas |
 | GET    | `/installment-expenses`     | Lista gastos parcelados ativos                |
 | DELETE | `/installment-expenses/:id` | Soft delete + soft delete em parcelas futuras |
+
+### Fixed Expenses
+
+| Método | Rota                  | Descrição                                                                                |
+| ------ | --------------------- | ---------------------------------------------------------------------------------------- |
+| POST   | `/fixed-expenses`     | Cria gasto fixo recorrente (gera Transaction do período atual se `startInCurrentPeriod`) |
+| GET    | `/fixed-expenses`     | Lista gastos fixos ativos                                                                |
+| DELETE | `/fixed-expenses/:id` | Soft delete + soft delete em cascata nas transações futuras                              |
 
 ### Aside Expenses
 
