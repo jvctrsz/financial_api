@@ -180,7 +180,7 @@ export class CreateTransactionService {
 
     if (!period) {
       throw new BadRequestException(
-        'Cadastre seu salÃ¡rio antes de registrar transaÃ§Ãµes.',
+        'Cadastre seu salário antes de registrar transações.',
       );
     }
 

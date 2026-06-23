@@ -94,7 +94,7 @@ export class CreateInstallmentExpenseService {
 
     if (!category || category.parentId === null) {
       throw new BadRequestException(
-        'Gasto parcelado deve referenciar uma subcategoria vÃ¡lida.',
+        'Gasto parcelado deve referenciar uma subcategoria válida.',
       );
     }
 
@@ -110,7 +110,7 @@ export class CreateInstallmentExpenseService {
     });
 
     if (!card) {
-      throw new BadRequestException('CartÃ£o nÃ£o encontrado.');
+      throw new BadRequestException('Cartão não encontrado.');
     }
 
     return card;
@@ -119,7 +119,7 @@ export class CreateInstallmentExpenseService {
   private validateStartMonth = (startMonth: Date) => {
     if (startMonth.getUTCDate() !== 1) {
       throw new BadRequestException(
-        'startMonth deve representar o primeiro dia do mÃªs.',
+        'startMonth deve representar o primeiro dia do mês.',
       );
     }
   };
