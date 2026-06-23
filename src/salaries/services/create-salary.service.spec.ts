@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import { GenerateFixedExpenseTransactionsService } from '../../fixed-expenses/services/generate-fixed-expense-transactions.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LinkOrphanInstallmentsService } from '../../transactions/services/link-orphan-installments.service';
 import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
@@ -9,6 +10,9 @@ describe('CreateSalaryService', () => {
   let linkOrphanInstallmentsService: {
     linkOrphanInstallments: jest.Mock;
   };
+  let generateFixedExpenseTransactionsService: {
+    generateFixedExpenseTransactions: jest.Mock;
+  };
   let service: CreateSalaryService;
 
   beforeEach(() => {
@@ -16,9 +20,13 @@ describe('CreateSalaryService', () => {
     linkOrphanInstallmentsService = {
       linkOrphanInstallments: jest.fn().mockResolvedValue({ count: 0 }),
     };
+    generateFixedExpenseTransactionsService = {
+      generateFixedExpenseTransactions: jest.fn().mockResolvedValue([]),
+    };
     service = new CreateSalaryService(
       prisma as unknown as PrismaService,
       linkOrphanInstallmentsService as unknown as LinkOrphanInstallmentsService,
+      generateFixedExpenseTransactionsService as unknown as GenerateFixedExpenseTransactionsService,
     );
   });
 
@@ -77,6 +85,23 @@ describe('CreateSalaryService', () => {
     ).toBeLessThan(
       linkOrphanInstallmentsService.linkOrphanInstallments.mock
         .invocationCallOrder[0],
+    );
+    expect(
+      generateFixedExpenseTransactionsService.generateFixedExpenseTransactions,
+    ).toHaveBeenCalledWith(
+      {
+        userId: 'user-1',
+        periodId: 'period-1',
+        referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
+      },
+      prisma,
+    );
+    expect(
+      linkOrphanInstallmentsService.linkOrphanInstallments.mock
+        .invocationCallOrder[0],
+    ).toBeLessThan(
+      generateFixedExpenseTransactionsService.generateFixedExpenseTransactions
+        .mock.invocationCallOrder[0],
     );
   });
 
@@ -137,6 +162,16 @@ describe('CreateSalaryService', () => {
     });
     expect(
       linkOrphanInstallmentsService.linkOrphanInstallments,
+    ).toHaveBeenCalledWith(
+      {
+        userId: 'user-1',
+        periodId: 'period-june',
+        referenceMonth: new Date('2025-06-01T00:00:00.000Z'),
+      },
+      prisma,
+    );
+    expect(
+      generateFixedExpenseTransactionsService.generateFixedExpenseTransactions,
     ).toHaveBeenCalledWith(
       {
         userId: 'user-1',

@@ -1,9 +1,10 @@
-import {
+﻿import {
   Body,
   Controller,
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -16,6 +17,7 @@ import { FindAllTransactionsQueryDto } from './dto/find-all-transactions-query.d
 import { CreateTransactionService } from './services/create-transaction.service';
 import { DeleteTransactionService } from './services/delete-transaction.service';
 import { FindAllTransactionsService } from './services/find-all-transactions.service';
+import { PayTransactionService } from './services/pay-transaction.service';
 
 type AuthenticatedRequest = Request & {
   user: {
@@ -31,6 +33,7 @@ export class TransactionsController {
     private readonly createTransactionService: CreateTransactionService,
     private readonly findAllTransactionsService: FindAllTransactionsService,
     private readonly deleteTransactionService: DeleteTransactionService,
+    private readonly payTransactionService: PayTransactionService,
   ) {}
 
   @Post()
@@ -65,4 +68,16 @@ export class TransactionsController {
       transactionId,
     );
   }
+
+  @Patch(':id/pay')
+  pay(
+    @Req() request: AuthenticatedRequest,
+    @Param('id') transactionId: string,
+  ) {
+    return this.payTransactionService.payTransaction(
+      request.user.id,
+      transactionId,
+    );
+  }
 }
+

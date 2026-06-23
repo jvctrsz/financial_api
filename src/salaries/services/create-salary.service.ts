@@ -1,4 +1,5 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { GenerateFixedExpenseTransactionsService } from '../../fixed-expenses/services/generate-fixed-expense-transactions.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LinkOrphanInstallmentsService } from '../../transactions/services/link-orphan-installments.service';
 import { CreateSalaryDto } from '../dto/create-salary.dto';
@@ -14,6 +15,7 @@ export class CreateSalaryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly linkOrphanInstallmentsService: LinkOrphanInstallmentsService,
+    private readonly generateFixedExpenseTransactionsService: GenerateFixedExpenseTransactionsService,
   ) {}
 
   createSalary = async (userId: string, dto: CreateSalaryDto) => {
@@ -69,6 +71,15 @@ export class CreateSalaryService {
         });
 
         await this.linkOrphanInstallmentsService.linkOrphanInstallments(
+          {
+            userId,
+            periodId: period.id,
+            referenceMonth: period.referenceMonth,
+          },
+          tx,
+        );
+
+        await this.generateFixedExpenseTransactionsService.generateFixedExpenseTransactions(
           {
             userId,
             periodId: period.id,

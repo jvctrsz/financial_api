@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { FixedExpensesModule } from '../fixed-expenses/fixed-expenses.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { TransactionsModule } from '../transactions/transactions.module';
 import { SalariesController } from './salaries.controller';
@@ -17,7 +18,7 @@ const salaryServices = [
 ];
 
 @Module({
-  imports: [PrismaModule, TransactionsModule],
+  imports: [PrismaModule, TransactionsModule, FixedExpensesModule],
   controllers: [SalariesController],
   providers: salaryServices,
   exports: salaryServices,

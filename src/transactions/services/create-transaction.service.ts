@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { Card, Prisma, TransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseDateOnly } from '../../salaries/utils/date-only.util';
@@ -7,12 +7,14 @@ import { CreateTransactionDto } from '../dto/create-transaction.dto';
 
 type PrismaTransactionClient = PrismaService | Prisma.TransactionClient;
 
-type CreateInstallmentExpenseInstallmentParams = {
+export type InternalCreateTransactionParams = {
   userId: string;
   categoryId: string;
   cardId: string | null;
-  installmentExpenseId: string;
   periodId: string | null;
+  installmentExpenseId?: string | null;
+  fixedExpenseId?: string | null;
+  paid?: boolean | null;
   type: TransactionType;
   amount: number;
   description: string;
@@ -50,28 +52,24 @@ export class CreateTransactionService {
     });
   };
 
-  createInstallmentExpenseInstallment = async (
-    params: CreateInstallmentExpenseInstallmentParams,
+  createTransactionInternal = async (
+    params: InternalCreateTransactionParams,
     prismaClient: PrismaTransactionClient = this.prisma,
   ) => {
-    if (!params.installmentExpenseId) {
-      throw new BadRequestException(
-        'Parcela de gasto parcelado deve possuir installmentExpenseId.',
-      );
-    }
-
     return prismaClient.transaction.create({
       data: {
         userId: params.userId,
         categoryId: params.categoryId,
         cardId: params.cardId,
-        installmentExpenseId: params.installmentExpenseId,
+        installmentExpenseId: params.installmentExpenseId ?? null,
+        fixedExpenseId: params.fixedExpenseId ?? null,
         periodId: params.periodId,
         type: params.type,
         amount: params.amount,
         description: params.description,
         transactionDate: params.transactionDate,
         billingDate: params.billingDate,
+        paid: params.paid ?? null,
         deletedAt: null,
       },
     });
@@ -182,7 +180,7 @@ export class CreateTransactionService {
 
     if (!period) {
       throw new BadRequestException(
-        'Cadastre seu salário antes de registrar transações.',
+        'Cadastre seu salÃ¡rio antes de registrar transaÃ§Ãµes.',
       );
     }
 

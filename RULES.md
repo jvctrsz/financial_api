@@ -251,6 +251,8 @@ O `CreateSalaryService` executa os seguintes passos em ordem:
 5. Chamar `LinkOrphanInstallmentsService` passando o `periodId` recém-criado e o `referenceMonth`.
 6. Chamar `GenerateFixedExpenseTransactionsService` passando o `periodId` recém-criado — gera uma `Transaction` para cada `FixedExpense` ativo do usuário (`deletedAt IS NULL` e, se `endMonth` estiver definido, `endMonth >= referenceMonth` do novo período). Ver seção 8.1.
 
+> **Atomicidade:** a partir da introdução do passo 6, todos os passos 1–6 devem ser executados dentro de uma única `prisma.$transaction`. Com mais passos e múltiplas escritas (potencialmente N transações de gastos fixos), uma falha no meio do fluxo não pode deixar o sistema em estado inconsistente (ex: `SalaryPeriod` criado sem as despesas fixas correspondentes, ou vice-versa). Se qualquer passo falhar, toda a operação deve ser revertida.
+
 > **Nota:** este passo 5 só tem efeito sobre parcelas de `InstallmentExpense` (ver seção 8). Transações de crédito comuns (`Transaction`) nunca ficam órfãs — seu `periodId` é resolvido pela data real da compra no momento da criação (ver seção 7), então não há nada para religar aqui.
 
 ### LinkOrphanInstallmentsService
@@ -352,6 +354,15 @@ Se a data atual for anterior ao `paidAt` do salário do mês corrente (ou seja, 
 ### Campos calculados automaticamente
 
 O cliente **nunca envia** `billingDate` nem `periodId`. Esses campos são **sempre calculados pelo serviço** na criação.
+
+### `CreateTransactionService` — Dois Pontos de Entrada
+
+O `CreateTransactionService` expõe dois métodos públicos, para separar explicitamente o fluxo HTTP do fluxo entre módulos:
+
+- **`createTransaction(userId, dto: CreateTransactionDto)`** — usado pelo controller (`POST /transactions`). Sempre calcula `billingDate` e `periodId` a partir da `transaction_date` informada, seguindo as regras desta seção.
+- **`createTransactionInternal(params: InternalCreateTransactionParams)`** — usado exclusivamente por outros services do sistema (ex: `InstallmentExpenseService`, `GenerateSingleFixedExpenseTransactionService`), que já chegam com `periodId` e demais campos resolvidos pela sua própria lógica de domínio. Aceita também `fixedExpenseId?` e `paid?`, que **nunca** são expostos no `CreateTransactionDto` público — são parâmetros exclusivos do uso interno.
+
+> Essa separação evita um único método com comportamento condicional escondido atrás de parâmetros opcionais — quem lê o nome do método já sabe se o cálculo automático será aplicado ou não.
 
 ### Cálculo do `billingDate`
 
@@ -502,14 +513,18 @@ Diferente do `InstallmentExpense` (seção 8), o `FixedExpense` representa um ga
 
 Diferente de um job/cron, a geração das `Transaction`s mensais do `FixedExpense` é **disparada pela criação do `SalaryPeriod`**, e não por um agendador externo. Essa escolha é deliberada: os períodos financeiros do sistema são ancorados na data de recebimento do salário (seção 6), não no calendário — um cron de calendário não teria como prever, de forma confiável, quando cada usuário inicia seu próximo período. Gerar a `Transaction` no mesmo momento em que o período nasce elimina esse problema de sincronização e não exige infraestrutura de agendamento.
 
-**`GenerateFixedExpenseTransactionsService`** — service dedicado, chamado pelo `CreateSalaryService` (passo 6, seção 6) após a criação do novo `SalaryPeriod`. Responsabilidade única: para cada `FixedExpense` ativo do usuário (`deletedAt IS NULL`, e `endMonth IS NULL OR endMonth >= referenceMonth` do novo período), criar uma `Transaction` vinculada ao `periodId` recém-criado, via `CreateTransactionService` (injeção entre módulos, mesmo padrão do `InstallmentExpenseService`).
+A geração é dividida em dois services com responsabilidades distintas, seguindo o princípio de um arquivo por caso de uso (seção 13):
+
+**`GenerateSingleFixedExpenseTransactionService`** — responsabilidade única: gerar a `Transaction` de **um** `FixedExpense` específico para um `periodId` informado. Resolve `paid` conforme `paymentMethod` (ver abaixo) e chama `CreateTransactionService.createTransactionInternal(...)` (ver seção 7) para persistir, já com `periodId`, `fixedExpenseId` e `paid` resolvidos — sem passar pelo cálculo de `billingDate`/`periodId` usado por transações comuns.
+
+**`GenerateFixedExpenseTransactionsService`** — orquestrador, chamado pelo `CreateSalaryService` (passo 6, seção 6) após a criação do novo `SalaryPeriod`. Busca todos os `FixedExpense` ativos do usuário (`deletedAt IS NULL`, e `endMonth IS NULL OR endMonth >= referenceMonth` do novo período) e chama `GenerateSingleFixedExpenseTransactionService` para cada um.
 
 > **Sem cenário de órfão:** diferente do `InstallmentExpense`, o `FixedExpense` nunca gera `Transaction` com `periodId = NULL`. A geração só é disparada quando o `SalaryPeriod` já existe (seja pelo fluxo lazy do `CreateSalaryService`, seja pela criação do próprio `FixedExpense` com `startInCurrentPeriod = true` — ver abaixo), então o vínculo já nasce resolvido.
 
 ### Criação — `CreateFixedExpenseService`
 
 1. Criar o registro em `FixedExpense`.
-2. Se `startInCurrentPeriod = true` (default quando omitido): buscar o `SalaryPeriod` vigente do usuário (`endedAt IS NULL` ou cobrindo hoje) e gerar imediatamente a `Transaction` desse período, reaproveitando a mesma lógica do `GenerateFixedExpenseTransactionsService`.
+2. Se `startInCurrentPeriod = true` (default quando omitido): buscar o `SalaryPeriod` vigente do usuário (`endedAt IS NULL` ou cobrindo hoje) e chamar `GenerateSingleFixedExpenseTransactionService` diretamente para esse `FixedExpense` e período — sem passar pelo orquestrador `GenerateFixedExpenseTransactionsService`, já que o `FixedExpense` a processar já é conhecido.
 3. Se `startInCurrentPeriod = false`: não gerar nenhuma `Transaction` agora. A primeira ocorrência só nasce quando o próximo `SalaryPeriod` for criado.
 
 > Se não existir nenhum `SalaryPeriod` (usuário sem salário cadastrado) e `startInCurrentPeriod = true`, retornar erro orientando o cadastro do salário antes de criar um `FixedExpense` — mesmo comportamento de ausência de período já adotado em `Transaction` (seção 7).
@@ -654,6 +669,8 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Deve criar salário e gerar SalaryPeriod automaticamente.
 - Deve atualizar `endedAt` do período anterior ao inserir novo salário.
 - Deve chamar `LinkOrphanInstallmentsService` após criar o novo período.
+- Deve chamar `GenerateFixedExpenseTransactionsService` após o `LinkOrphanInstallmentsService`.
+- Deve reverter todas as alterações (Salary, SalaryPeriod, parcelas religadas, transações de gastos fixos) se qualquer passo do fluxo falhar (atomicidade via `prisma.$transaction`).
 - Deve rejeitar dois salários no mesmo dia para o mesmo usuário.
 - Deve retornar salário vigente via fallback (último `paidAt <= dataConsultada`).
 - Deve retornar erro se nenhum salário cadastrado.
@@ -712,13 +729,25 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - Com `startInCurrentPeriod = true` (ou omitido): deve gerar a `Transaction` do período atual na própria criação.
 - Com `startInCurrentPeriod = false`: não deve gerar nenhuma `Transaction` na criação.
+- Deve rejeitar criação com `startInCurrentPeriod = true` se o usuário não tiver nenhum `SalaryPeriod` cadastrado.
+- Soft delete em cascata: deve apagar `Transaction`s futuras (`billingDate >= hoje`) e preservar passadas.
+
+**`GenerateSingleFixedExpenseTransactionService`**
+
 - `paymentMethod = PIX` ou `DEBIT`: a `Transaction` gerada deve nascer com `paid = false`.
 - `paymentMethod = CREDIT`: a `Transaction` gerada deve nascer com `paid = null`.
-- Deve rejeitar criação com `startInCurrentPeriod = true` se o usuário não tiver nenhum `SalaryPeriod` cadastrado.
-- `GenerateFixedExpenseTransactionsService`: ao criar um novo `SalaryPeriod`, deve gerar uma `Transaction` para cada `FixedExpense` ativo do usuário.
-- `GenerateFixedExpenseTransactionsService`: não deve gerar `Transaction` para `FixedExpense` com `endMonth` anterior ao `referenceMonth` do novo período.
-- `GenerateFixedExpenseTransactionsService`: não deve gerar `Transaction` para `FixedExpense` soft-deletado.
-- Soft delete em cascata: deve apagar `Transaction`s futuras (`billingDate >= hoje`) e preservar passadas.
+- Deve vincular corretamente `fixedExpenseId` e `periodId` na `Transaction` gerada, via `CreateTransactionService.createTransactionInternal`.
+
+**`GenerateFixedExpenseTransactionsService`**
+
+- Ao criar um novo `SalaryPeriod`, deve gerar uma `Transaction` para cada `FixedExpense` ativo do usuário.
+- Não deve gerar `Transaction` para `FixedExpense` com `endMonth` anterior ao `referenceMonth` do novo período.
+- Não deve gerar `Transaction` para `FixedExpense` soft-deletado.
+
+**`TransactionService` - `createTransactionInternal`**
+
+- Deve criar a `Transaction` com `periodId`, `fixedExpenseId` e `paid` exatamente como informados, sem recalcular `billingDate`/`periodId`.
+- O DTO público (`CreateTransactionDto`, usado por `createTransaction`) não deve aceitar `periodId`, `fixedExpenseId` nem `paid` como campos de entrada.
 
 **`TransactionService` — marcar como pago (`/pay`)**
 
@@ -817,7 +846,7 @@ src/
 └── app.module.ts
 ```
 
-> **Módulo `fixed-expenses`:** segue a mesma estrutura, com `services/create-fixed-expense.service.ts`, `services/generate-fixed-expense-transactions.service.ts` (injetado no `salaries` módulo, mesmo padrão de injeção entre módulos do `LinkOrphanInstallmentsService`) e `services/delete-fixed-expense.service.ts`. O service que marca uma `Transaction` como paga (`PATCH /transactions/:id/pay`) vive no módulo `transactions`, não em `fixed-expenses` — a ação opera sobre o recurso `Transaction`, então pertence ao seu próprio módulo.
+> **Módulo `fixed-expenses`:** segue a mesma estrutura, com `services/create-fixed-expense.service.ts`, `services/generate-single-fixed-expense-transaction.service.ts`, `services/generate-fixed-expense-transactions.service.ts` (este último injetado no módulo `salaries`, mesmo padrão de injeção entre módulos do `LinkOrphanInstallmentsService`) e `services/delete-fixed-expense.service.ts`. O service que marca uma `Transaction` como paga (`PATCH /transactions/:id/pay`) vive no módulo `transactions`, não em `fixed-expenses` — a ação opera sobre o recurso `Transaction`, então pertence ao seu próprio módulo.
 
 ---
 

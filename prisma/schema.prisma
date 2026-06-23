@@ -21,6 +21,7 @@ model User {
   incomes             Income[]
   asideExpenses       AsideExpense[]
   installmentExpenses InstallmentExpense[]
+  fixedExpenses       FixedExpense[]
 
   @@map("users")
 }
@@ -38,6 +39,7 @@ model Category {
   children            Category[]           @relation("CategoryTree")
   transactions        Transaction[]
   installmentExpenses InstallmentExpense[]
+  fixedExpenses       FixedExpense[]
 
   @@index([userId])
   @@index([parentId])
@@ -55,6 +57,7 @@ model Card {
   user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions        Transaction[]
   installmentExpenses InstallmentExpense[]
+  fixedExpenses       FixedExpense[]
 
   @@index([userId, createdAt])
   @@map("cards")
@@ -104,11 +107,13 @@ model Transaction {
   cardId               String?             @db.Uuid
   periodId             String?             @db.Uuid
   installmentExpenseId String?             @db.Uuid
+  fixedExpenseId       String?             @db.Uuid
   type                 TransactionType
   amount               Decimal             @db.Decimal(12, 2)
   description          String
   transactionDate      DateTime            @db.Date
   billingDate          DateTime            @db.Date
+  paid                 Boolean?
   deletedAt            DateTime?
   createdAt            DateTime            @default(now())
   user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -116,12 +121,14 @@ model Transaction {
   card                 Card?               @relation(fields: [cardId], references: [id], onDelete: Restrict)
   period               SalaryPeriod?       @relation(fields: [periodId], references: [id], onDelete: Restrict)
   installmentExpense   InstallmentExpense? @relation(fields: [installmentExpenseId], references: [id], onDelete: Restrict)
+  fixedExpense         FixedExpense?       @relation(fields: [fixedExpenseId], references: [id], onDelete: Restrict)
 
   @@index([userId, periodId, deletedAt])
   @@index([userId, billingDate, deletedAt])
   @@index([categoryId])
   @@index([cardId])
   @@index([installmentExpenseId])
+  @@index([fixedExpenseId])
   @@map("transactions")
 }
 
@@ -147,6 +154,29 @@ model InstallmentExpense {
   @@index([cardId])
   @@index([deletedAt])
   @@map("installment_expenses")
+}
+
+model FixedExpense {
+  id            String          @id @default(uuid(7)) @db.Uuid
+  userId        String          @db.Uuid
+  categoryId    String          @db.Uuid
+  cardId        String?         @db.Uuid
+  name          String
+  amount        Decimal         @db.Decimal(12, 2)
+  paymentMethod TransactionType
+  endMonth      DateTime?       @db.Date
+  deletedAt     DateTime?
+  createdAt     DateTime        @default(now())
+  user          User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  category      Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  card          Card?           @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  transactions  Transaction[]
+
+  @@index([userId])
+  @@index([categoryId])
+  @@index([cardId])
+  @@index([deletedAt])
+  @@map("fixed_expenses")
 }
 
 model Income {

@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+﻿import { BadRequestException } from '@nestjs/common';
 import { TransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { makePrisma, MockPrismaService } from '../test-utils/mock-prisma';
@@ -453,5 +453,42 @@ describe('CreateTransactionService', () => {
     ).rejects.toThrow(
       'Nenhum cartão padrão definido. Defina um cartão padrão ou informe o cardId.',
     );
+  });
+
+  it('createTransactionInternal deve criar transacão com periodId, fixedExpenseId e paid informados sem recalcular campos', async () => {
+    await service.createTransactionInternal({
+      userId: 'user-1',
+      categoryId: 'category-1',
+      cardId: null,
+      periodId: 'period-internal',
+      installmentExpenseId: null,
+      fixedExpenseId: 'fixed-expense-1',
+      paid: false,
+      type: TransactionType.PIX,
+      amount: 120,
+      description: 'Internet',
+      transactionDate: new Date('2025-06-01T00:00:00.000Z'),
+      billingDate: new Date('2025-06-01T00:00:00.000Z'),
+    });
+
+    expect(prisma.category.findFirst).not.toHaveBeenCalled();
+    expect(prisma.salaryPeriod.findFirst).not.toHaveBeenCalled();
+    expect(prisma.transaction.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'user-1',
+        categoryId: 'category-1',
+        cardId: null,
+        installmentExpenseId: null,
+        fixedExpenseId: 'fixed-expense-1',
+        periodId: 'period-internal',
+        type: TransactionType.PIX,
+        amount: 120,
+        description: 'Internet',
+        transactionDate: new Date('2025-06-01T00:00:00.000Z'),
+        billingDate: new Date('2025-06-01T00:00:00.000Z'),
+        paid: false,
+        deletedAt: null,
+      },
+    });
   });
 });

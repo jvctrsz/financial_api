@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+﻿import { BadRequestException, Injectable } from '@nestjs/common';
 import { Card, TransactionType } from '@prisma/client';
 import { addMonths } from 'date-fns';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -60,12 +60,14 @@ export class CreateInstallmentExpenseService {
           },
         });
 
-        await this.createTransactionService.createInstallmentExpenseInstallment(
+        await this.createTransactionService.createTransactionInternal(
           {
             userId,
             categoryId: category.id,
             cardId: card?.id ?? null,
             installmentExpenseId: installmentExpense.id,
+            fixedExpenseId: null,
+            paid: null,
             periodId: period?.id ?? null,
             type,
             amount: dto.installmentAmount,
@@ -92,7 +94,7 @@ export class CreateInstallmentExpenseService {
 
     if (!category || category.parentId === null) {
       throw new BadRequestException(
-        'Gasto parcelado deve referenciar uma subcategoria válida.',
+        'Gasto parcelado deve referenciar uma subcategoria vÃ¡lida.',
       );
     }
 
@@ -108,7 +110,7 @@ export class CreateInstallmentExpenseService {
     });
 
     if (!card) {
-      throw new BadRequestException('Cartão não encontrado.');
+      throw new BadRequestException('CartÃ£o nÃ£o encontrado.');
     }
 
     return card;
@@ -117,7 +119,7 @@ export class CreateInstallmentExpenseService {
   private validateStartMonth = (startMonth: Date) => {
     if (startMonth.getUTCDate() !== 1) {
       throw new BadRequestException(
-        'startMonth deve representar o primeiro dia do mês.',
+        'startMonth deve representar o primeiro dia do mÃªs.',
       );
     }
   };
@@ -145,3 +147,4 @@ export class CreateInstallmentExpenseService {
     return calculateCreditBillingDate(baseDate, card.closingDay);
   };
 }
+
