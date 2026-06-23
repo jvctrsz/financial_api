@@ -4,6 +4,7 @@ export type MockPrismaService = {
   };
   transaction: {
     aggregate: jest.Mock;
+    findMany: jest.Mock;
   };
   income: {
     aggregate: jest.Mock;
@@ -19,6 +20,7 @@ export const makePrisma = (): MockPrismaService => ({
   },
   transaction: {
     aggregate: jest.fn(),
+    findMany: jest.fn(),
   },
   income: {
     aggregate: jest.fn(),
