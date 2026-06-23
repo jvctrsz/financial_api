@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { todayAsUtcDateOnly } from '../../salaries/utils/date-only.util';
+import {
+  buildAsideExpensePeriodWhere,
+  decimalToNumber,
+  formatDateOnly,
+} from './report-utils';
 
 type CurrentPeriodWithSalary = {
   id: string;
@@ -11,10 +16,6 @@ type CurrentPeriodWithSalary = {
     amount: unknown;
   } | null;
 };
-
-const decimalToNumber = (value: unknown): number => Number(value ?? 0);
-
-const formatDateOnly = (date: Date): string => date.toISOString().slice(0, 10);
 
 @Injectable()
 export class FindCurrentBalanceReportService {
@@ -83,32 +84,10 @@ export class FindCurrentBalanceReportService {
         },
       }),
       this.prisma.asideExpense.aggregate({
-        where: {
+        where: buildAsideExpensePeriodWhere(
           userId,
-          deletedAt: null,
-          OR: [
-            {
-              recurrent: false,
-              startMonth: currentPeriod.referenceMonth,
-            },
-            {
-              recurrent: true,
-              startMonth: {
-                lte: currentPeriod.referenceMonth,
-              },
-              OR: [
-                {
-                  endMonth: null,
-                },
-                {
-                  endMonth: {
-                    gte: currentPeriod.referenceMonth,
-                  },
-                },
-              ],
-            },
-          ],
-        },
+          currentPeriod.referenceMonth,
+        ),
         _sum: {
           amount: true,
         },
