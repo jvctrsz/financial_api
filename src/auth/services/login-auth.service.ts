@@ -1,7 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { addDays } from 'date-fns';
 import * as argon2 from 'argon2';
 import { PrismaService } from '../../prisma/prisma.service';
 import { LoginDto } from '../dto/login.dto';
+import { hashToken } from '../utils/hash-token.util';
 import { GenerateAuthTokensService } from './generate-auth-tokens.service';
 
 @Injectable()
@@ -29,7 +31,17 @@ export class LoginAuthService {
       throw this.invalidCredentialsError();
     }
 
-    return this.generateAuthTokensService.generateTokens(user);
+    const tokens = await this.generateAuthTokensService.generateTokens(user);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: hashToken(tokens.refreshToken),
+        expiresAt: addDays(new Date(), 7),
+      },
+    });
+
+    return tokens;
   };
 
   private invalidCredentialsError = () =>

@@ -1,10 +1,12 @@
-import { Body, Controller, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginAuthService } from './services/login-auth.service';
+import { LogoutAuthService } from './services/logout-auth.service';
 import { RefreshAuthService } from './services/refresh-auth.service';
 import { RegisterAuthService } from './services/register-auth.service';
+import { REFRESH_TOKEN_COOKIE_OPTIONS } from './utils/refresh-token-cookie.util';
 
 type RefreshRequest = Request & {
   cookies: {
@@ -18,6 +20,7 @@ export class AuthController {
     private readonly registerAuthService: RegisterAuthService,
     private readonly loginAuthService: LoginAuthService,
     private readonly refreshAuthService: RefreshAuthService,
+    private readonly logoutAuthService: LogoutAuthService,
   ) {}
 
   @Post('register')
@@ -39,19 +42,33 @@ export class AuthController {
   }
 
   @Post('refresh')
-  refresh(@Req() request: RefreshRequest) {
-    return this.refreshAuthService.refresh(request.cookies.refreshToken ?? '');
+  async refresh(
+    @Req() request: RefreshRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { accessToken, refreshToken } = await this.refreshAuthService.refresh(
+      request.cookies.refreshToken ?? '',
+    );
+
+    this.setRefreshTokenCookie(response, refreshToken);
+
+    return { accessToken };
+  }
+
+  @Post('logout')
+  @HttpCode(204)
+  async logout(
+    @Req() request: RefreshRequest,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    await this.logoutAuthService.logout(request.cookies.refreshToken);
+    response.clearCookie('refreshToken', REFRESH_TOKEN_COOKIE_OPTIONS);
   }
 
   private setRefreshTokenCookie = (
     response: Response,
     refreshToken: string,
   ) => {
-    response.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: false,
-      path: '/auth',
-    });
+    response.cookie('refreshToken', refreshToken, REFRESH_TOKEN_COOKIE_OPTIONS);
   };
 }

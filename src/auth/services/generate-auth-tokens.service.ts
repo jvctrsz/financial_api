@@ -29,7 +29,7 @@ export class GenerateAuthTokensService {
       },
     );
 
-  private generateRefreshToken = async (userId: string, email: string) =>
+  generateRefreshToken = async (userId: string, email: string) =>
     this.jwtService.signAsync(
       { sub: userId, email },
       {

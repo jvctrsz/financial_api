@@ -22,8 +22,22 @@ model User {
   asideExpenses       AsideExpense[]
   installmentExpenses InstallmentExpense[]
   fixedExpenses       FixedExpense[]
+  refreshTokens       RefreshToken[]
 
   @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
 }
 
 model Category {

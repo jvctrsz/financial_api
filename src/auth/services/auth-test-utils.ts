@@ -1,9 +1,15 @@
 import { User } from '@prisma/client';
 
 export type MockPrismaService = {
+  $transaction: jest.Mock;
   user: {
     create: jest.Mock;
     findUnique: jest.Mock;
+  };
+  refreshToken: {
+    create: jest.Mock;
+    findFirst: jest.Mock;
+    update: jest.Mock;
   };
 };
 
@@ -17,9 +23,21 @@ export const makeUser = (overrides: Partial<User> = {}): User => ({
   ...overrides,
 });
 
-export const makePrisma = (): MockPrismaService => ({
-  user: {
-    create: jest.fn(),
-    findUnique: jest.fn(),
-  },
-});
+export const makePrisma = (): MockPrismaService => {
+  const prisma: MockPrismaService = {
+    $transaction: jest.fn(),
+    user: {
+      create: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    refreshToken: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
+  };
+
+  prisma.$transaction.mockImplementation((callback) => callback(prisma));
+
+  return prisma;
+};

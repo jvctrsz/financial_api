@@ -21,20 +21,22 @@
 12. [Testes](#12-testes)
 13. [Estrutura de Módulos](#13-estrutura-de-módulos)
 14. [Endpoints](#14-endpoints)
+15. [Idempotência e Rate Limiting (Planejado)](#15-idempotência-e-rate-limiting-planejado)
 
 ---
 
 ## 1. Stack e Bibliotecas
 
-| Camada               | Tecnologia                   |
-| -------------------- | ---------------------------- |
-| Framework            | NestJS com TypeScript        |
-| Banco de dados       | PostgreSQL                   |
-| ORM                  | Prisma                       |
-| Autenticação         | JWT (access + refresh token) |
-| Hash de senha        | Argon2                       |
-| Manipulação de datas | date-fns                     |
-| Testes               | Jest + @nestjs/testing       |
+| Camada                | Tecnologia                                |
+| --------------------- | ----------------------------------------- |
+| Framework             | NestJS com TypeScript                     |
+| Banco de dados        | PostgreSQL                                |
+| ORM                   | Prisma                                    |
+| Autenticação          | JWT (access + refresh token)              |
+| Hash de senha         | Argon2                                    |
+| Hash de refresh token | SHA-256 (nativo do Node, módulo `crypto`) |
+| Manipulação de datas  | date-fns                                  |
+| Testes                | Jest + @nestjs/testing                    |
 
 - Swagger **não** deve ser implementado neste momento.
 - O projeto é **multi-usuário** — todo dado é isolado por `userId`. Nenhum endpoint retorna dados de outro usuário.
@@ -100,18 +102,74 @@ Decisão de arquitetura para evitar duplicação de lógica:
 - Senha deve ser hasheada com **Argon2** antes de persistir. Nunca salvar plain text.
 - Retornar erro claro se email já estiver em uso.
 
+### Model `RefreshToken`
+
+Diferente do `accessToken` (JWT puramente stateless, validado só pela assinatura), o `refreshToken` é **persistido no banco** — isso é o que permite revogação real (logout, detecção de roubo), algo impossível com um JWT puramente stateless.
+
+```prisma
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+```
+
+- **Nunca persistir o JWT completo.** Salvar apenas `tokenHash` (SHA-256 do JWT). Se o banco for comprometido (vazamento, backup mal protegido), o hash não permite reconstruir o token original — mesmo princípio do hash de senha (seção 3, Senha), mas sem necessidade de um algoritmo lento como Argon2, já que não é segredo de usuário e o objetivo aqui é só evitar reversão direta.
+- **Múltiplas sessões simultâneas são permitidas.** Um usuário pode ter vários `RefreshToken` válidos ao mesmo tempo (ex: navegador + app mobile + futuro bot Telegram/WhatsApp, seção de planos futuros). Cada login cria um novo registro independente; nenhum invalida os demais.
+
 ### Login
 
 - Validar email e senha.
 - Retornar `accessToken` (JWT, expiração curta — **15 minutos**) no body.
-- Retornar `refreshToken` (JWT, expiração longa — **7 dias**) em **httpOnly cookie** — nunca exposto no body.
+- Gerar `refreshToken` (JWT, expiração longa — **7 dias**), calcular `tokenHash` (SHA-256) e criar o registro em `RefreshToken` com `expiresAt = now() + 7 dias`.
+- Retornar o `refreshToken` (JWT original, não o hash) em **httpOnly cookie** — nunca exposto no body.
 - Rejeitar com erro genérico se credenciais forem inválidas (não diferenciar "email não existe" de "senha errada" para evitar enumeração de usuários).
 
-### Refresh Token
+**Opções do cookie do `refreshToken`** (usar um helper único, reaproveitado em login, refresh e logout, para garantir consistência entre criação e limpeza):
+
+- `httpOnly: true` — nunca acessível via JavaScript no navegador.
+- `path: '/auth'` — o cookie só é enviado pelo navegador em chamadas para `/auth/*` (login, refresh, logout). Em qualquer outra rota da API, o cookie não trafega — reduz a superfície de exposição, já que nenhuma outra rota depende dele (todas usam `accessToken` via header `Authorization`).
+- `sameSite: 'lax'`, `secure: false` em desenvolvimento (HTTP local). Em produção, com HTTPS, `secure: true` deve ser usado — revisar quando o domínio de produção for definido (seção CORS, abaixo).
+- **As mesmas opções usadas ao criar o cookie devem ser usadas ao limpá-lo** (`res.clearCookie`) — divergência entre as opções de criação e limpeza faz o navegador não remover o cookie corretamente.
+
+### Refresh Token — Rotação
 
 - Endpoint `POST /auth/refresh` recebe o `refreshToken` via cookie.
-- Retorna novo `accessToken` no body.
-- Rejeitar token inválido, expirado ou adulterado.
+- Calcula o `tokenHash` do token recebido e busca em `RefreshToken` onde `tokenHash` corresponde, `revokedAt IS NULL` e `expiresAt > now()`.
+- Se não encontrar (token revogado, expirado ou inválido) → rejeitar.
+- Se encontrar, dentro de uma única `prisma.$transaction`:
+  1. Gerar um novo `refreshToken` (JWT, 7 dias), calcular o novo `tokenHash`, **criar** o novo registro em `RefreshToken`.
+  2. **Depois**, marcar o registro antigo como `revokedAt = now()` — **o refresh token é rotacionado a cada uso**, nunca reutilizável.
+  3. Gerar novo `accessToken`.
+  4. Retornar o novo `accessToken` no body e o novo `refreshToken` no cookie (substituindo o antigo).
+
+> **Ordem dos passos 1–2:** criar o novo registro antes de revogar o antigo, nunca o inverso. Como tudo ocorre em uma transação, o resultado final é o mesmo em caso de sucesso — mas se outra requisição simultânea consultar `RefreshToken` enquanto a transação ainda está em andamento, essa ordem garante que, na pior hipótese, ela encontre dois tokens válidos por um instante (antigo + novo), nunca uma janela em que o usuário fique sem nenhum refresh token válido.
+
+> **Por que rotacionar:** se um `refreshToken` já rotacionado (revogado) for apresentado novamente em uma chamada futura, isso é sinal de que o token foi copiado/roubado — o dono legítimo já o trocou por um novo. A detecção e resposta automática a esse cenário (ex: revogar todas as sessões do usuário) é uma melhoria possível, não implementada nesta versão.
+
+### Logout
+
+> **Guiado pelo `refreshToken`, não pelo `accessToken`.** A sessão a ser revogada é identificada pelo cookie httpOnly, não por `req.user`. Por isso, `POST /auth/logout` **não usa guard de autenticação por `accessToken`** — funciona mesmo com o access token já expirado, já que toda a lógica depende exclusivamente do cookie.
+
+Fluxo:
+
+1. Ler o `refreshToken` do cookie httpOnly.
+2. Calcular o `tokenHash` (SHA-256) do token recebido.
+3. Buscar em `RefreshToken` um registro com esse `tokenHash` e `revokedAt IS NULL` (sessão ativa).
+4. Se encontrar, definir `revokedAt = now()` — revoga **apenas a sessão atual**. Outras sessões simultâneas do mesmo usuário (outros dispositivos) não são afetadas.
+5. Limpar o cookie do `refreshToken` na resposta (`clearCookie`), **independentemente** de uma sessão ativa ter sido encontrada no passo 3.
+6. Retornar `204 No Content`.
+
+- Se não houver cookie, ou o token não corresponder a nenhuma sessão ativa (já revogado, expirado, ou inexistente): pular direto para os passos 5–6 — limpar o cookie e retornar `204` mesmo assim, sem erro.
+- Não requer body. Idempotente por natureza: chamar duas vezes seguidas sempre resulta em `204`, com a segunda chamada simplesmente não encontrando sessão ativa para revogar.
+- "Logout de todos os dispositivos" (revogar todos os `RefreshToken` do usuário) não está no escopo desta versão — possível extensão futura.
 
 ### Preferências do Usuário
 
@@ -122,6 +180,24 @@ Decisão de arquitetura para evitar duplicação de lógica:
 
 - Atualização de senha deve gerar novo hash Argon2.
 - Nunca retornar `passwordHash` em nenhuma resposta da API.
+
+### CORS
+
+O `refreshToken` é transportado via **httpOnly cookie** (ver Login, acima), e cookies cross-origin têm regras próprias no navegador — sem a configuração correta, o cookie simplesmente não é enviado nem aceito, quebrando `/auth/refresh` e `/auth/logout` silenciosamente.
+
+- **`origin` deve ser explícito** — nunca wildcard (`*`). Cookies cross-origin exigem uma origem nomeada; `*` é incompatível com `credentials: true`.
+- **`credentials: true`** obrigatório no backend, para aceitar/enviar cookies entre origens diferentes.
+- A origem permitida deve vir de variável de ambiente (`FRONTEND_URL` ou equivalente), não hardcoded — facilita a transição entre desenvolvimento (`http://localhost:5173`, padrão do Vite) e o domínio de produção, ainda não definido.
+
+```typescript
+// main.ts
+app.enableCors({
+  origin: process.env.FRONTEND_URL, // ex: http://localhost:5173 em dev
+  credentials: true,
+});
+```
+
+> No lado do cliente (axios), as chamadas que dependem do cookie (`/auth/refresh`, `/auth/logout`) precisam ser feitas com `withCredentials: true` — sem isso, o navegador não envia o cookie mesmo com o CORS configurado corretamente no backend.
 
 ---
 
@@ -359,8 +435,8 @@ O cliente **nunca envia** `billingDate` nem `periodId`. Esses campos são **semp
 
 O `CreateTransactionService` expõe dois métodos públicos, para separar explicitamente o fluxo HTTP do fluxo entre módulos:
 
-- **`createTransaction(userId, dto: CreateTransactionDto)`** — usado pelo controller (`POST /transactions`). Sempre calcula `billingDate` e `periodId` a partir da `transaction_date` informada, seguindo as regras desta seção.
-- **`createTransactionInternal(params: InternalCreateTransactionParams)`** — usado exclusivamente por outros services do sistema (ex: `InstallmentExpenseService`, `GenerateSingleFixedExpenseTransactionService`), que já chegam com `periodId` e demais campos resolvidos pela sua própria lógica de domínio. Aceita também `fixedExpenseId?` e `paid?`, que **nunca** são expostos no `CreateTransactionDto` público — são parâmetros exclusivos do uso interno.
+- **`execute(userId, dto: CreateTransactionDto)`** — usado pelo controller (`POST /transactions`). Sempre calcula `billingDate` e `periodId` a partir da `transaction_date` informada, seguindo as regras desta seção.
+- **`executeInternal(params: InternalCreateTransactionParams)`** — usado exclusivamente por outros services do sistema (ex: `InstallmentExpenseService`, `GenerateSingleFixedExpenseTransactionService`), que já chegam com `periodId` e demais campos resolvidos pela sua própria lógica de domínio. Aceita também `fixedExpenseId?` e `paid?`, que **nunca** são expostos no `CreateTransactionDto` público — são parâmetros exclusivos do uso interno.
 
 > Essa separação evita um único método com comportamento condicional escondido atrás de parâmetros opcionais — quem lê o nome do método já sabe se o cálculo automático será aplicado ou não.
 
@@ -515,7 +591,7 @@ Diferente de um job/cron, a geração das `Transaction`s mensais do `FixedExpens
 
 A geração é dividida em dois services com responsabilidades distintas, seguindo o princípio de um arquivo por caso de uso (seção 13):
 
-**`GenerateSingleFixedExpenseTransactionService`** — responsabilidade única: gerar a `Transaction` de **um** `FixedExpense` específico para um `periodId` informado. Resolve `paid` conforme `paymentMethod` (ver abaixo) e chama `CreateTransactionService.createTransactionInternal(...)` (ver seção 7) para persistir, já com `periodId`, `fixedExpenseId` e `paid` resolvidos — sem passar pelo cálculo de `billingDate`/`periodId` usado por transações comuns.
+**`GenerateSingleFixedExpenseTransactionService`** — responsabilidade única: gerar a `Transaction` de **um** `FixedExpense` específico para um `periodId` informado. Resolve `paid` conforme `paymentMethod` (ver abaixo) e chama `CreateTransactionService.executeInternal(...)` (ver seção 7) para persistir, já com `periodId`, `fixedExpenseId` e `paid` resolvidos — sem passar pelo cálculo de `billingDate`/`periodId` usado por transações comuns.
 
 **`GenerateFixedExpenseTransactionsService`** — orquestrador, chamado pelo `CreateSalaryService` (passo 6, seção 6) após a criação do novo `SalaryPeriod`. Busca todos os `FixedExpense` ativos do usuário (`deletedAt IS NULL`, e `endMonth IS NULL OR endMonth >= referenceMonth` do novo período) e chama `GenerateSingleFixedExpenseTransactionService` para cada um.
 
@@ -736,7 +812,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - `paymentMethod = PIX` ou `DEBIT`: a `Transaction` gerada deve nascer com `paid = false`.
 - `paymentMethod = CREDIT`: a `Transaction` gerada deve nascer com `paid = null`.
-- Deve vincular corretamente `fixedExpenseId` e `periodId` na `Transaction` gerada, via `CreateTransactionService.createTransactionInternal`.
+- Deve vincular corretamente `fixedExpenseId` e `periodId` na `Transaction` gerada, via `CreateTransactionService.executeInternal`.
 
 **`GenerateFixedExpenseTransactionsService`**
 
@@ -744,10 +820,10 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Não deve gerar `Transaction` para `FixedExpense` com `endMonth` anterior ao `referenceMonth` do novo período.
 - Não deve gerar `Transaction` para `FixedExpense` soft-deletado.
 
-**`TransactionService` - `createTransactionInternal`**
+**`TransactionService` — `executeInternal`**
 
 - Deve criar a `Transaction` com `periodId`, `fixedExpenseId` e `paid` exatamente como informados, sem recalcular `billingDate`/`periodId`.
-- O DTO público (`CreateTransactionDto`, usado por `createTransaction`) não deve aceitar `periodId`, `fixedExpenseId` nem `paid` como campos de entrada.
+- O DTO público (`CreateTransactionDto`, usado por `execute`) não deve aceitar `periodId`, `fixedExpenseId` nem `paid` como campos de entrada.
 
 **`TransactionService` — marcar como pago (`/pay`)**
 
@@ -787,7 +863,19 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Deve rejeitar registro com email duplicado.
 - Deve retornar tokens válidos no login.
 - Deve rejeitar credenciais inválidas com erro genérico.
-- Deve rejeitar refresh token inválido ou expirado.
+- Login deve criar um registro em `RefreshToken` com `tokenHash` correto (nunca o JWT completo).
+- Deve permitir múltiplos `RefreshToken` simultâneos válidos para o mesmo usuário (sessões em paralelo).
+- Deve rejeitar refresh token inválido, expirado ou sem registro correspondente em `RefreshToken`.
+- Deve rejeitar refresh token cujo registro já está `revokedAt IS NOT NULL` (token já rotacionado/revogado).
+- `POST /auth/refresh` deve revogar (`revokedAt = now()`) o registro antigo e criar um novo `RefreshToken` a cada chamada (rotação).
+- `POST /auth/refresh` deve retornar um novo `refreshToken` no cookie, diferente do anterior.
+- `POST /auth/logout` deve marcar `revokedAt = now()` apenas no `RefreshToken` correspondente ao cookie enviado.
+- `POST /auth/logout` não deve afetar outros `RefreshToken` ativos do mesmo usuário (outras sessões).
+- `POST /auth/logout` deve limpar o cookie do `refreshToken` na resposta.
+- `POST /auth/logout` chamado sem cookie válido (ou já revogado) não deve lançar erro.
+- `POST /auth/logout` deve retornar `204 No Content` em todos os cenários (sessão válida ou não).
+- `POST /auth/logout` deve funcionar mesmo sem `accessToken` válido (ou com header `Authorization` ausente) — não deve exigir guard de autenticação.
+- Após logout, uma tentativa de `POST /auth/refresh` com o token revogado deve ser rejeitada.
 
 **`CategoryService`**
 
@@ -857,11 +945,12 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 
 ### Auth
 
-| Método | Rota             | Descrição                                          |
-| ------ | ---------------- | -------------------------------------------------- |
-| POST   | `/auth/register` | Cria conta                                         |
-| POST   | `/auth/login`    | Retorna accessToken (body) + refreshToken (cookie) |
-| POST   | `/auth/refresh`  | Renova accessToken via refreshToken (cookie)       |
+| Método | Rota             | Descrição                                                                                              |
+| ------ | ---------------- | ------------------------------------------------------------------------------------------------------ |
+| POST   | `/auth/register` | Cria conta                                                                                             |
+| POST   | `/auth/login`    | Retorna accessToken (body) + refreshToken (cookie)                                                     |
+| POST   | `/auth/refresh`  | Rotaciona refreshToken e renova accessToken                                                            |
+| POST   | `/auth/logout`   | Revoga a sessão atual (refreshToken do cookie), limpa o cookie e retorna 204. Sem guard de accessToken |
 
 ### Users
 
@@ -966,3 +1055,54 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 
 - `periodId` é retornado para permitir navegação ao relatório completo via `GET /reports/period/:periodId`.
 - Se nenhum período existir (usuário sem salário cadastrado), retornar erro orientando o cadastro do salário.
+
+---
+
+## 15. Idempotência e Rate Limiting (Planejado)
+
+> **Status: decisão de design registrada, implementação ainda não iniciada.** Esta seção documenta as escolhas já feitas, para que a implementação futura não precise reabrir essas discussões.
+
+### 15.1 Idempotência
+
+**Problema que resolve:** evitar que a mesma intenção de criação (clique duplo, retry de rede) gere registros duplicados. **Não é** sobre limitar volume de requests — isso é resolvido pela seção 15.2.
+
+**Onde aplicar:** apenas em `POST`s que criam recursos com efeito financeiro: `Transaction`, `InstallmentExpense`, `FixedExpense`, `Income`, `AsideExpense`, `Salary`. `GET`s já são idempotentes por natureza. `DELETE`/`PATCH` operam sobre um `id` específico — repetir a chamada já é seguro por si só.
+
+**Mecanismo:**
+
+- O cliente gera um UUID v4 por tentativa de submissão (não por sessão, não por usuário — uma key por "clique em salvar") e envia no header `Idempotency-Key`.
+- O backend verifica se a key já foi processada antes de executar o caso de uso:
+  - Key inexistente → processa normalmente, salva o resultado associado à key, retorna.
+  - Key já `COMPLETED` → retorna o resultado salvo, sem reprocessar.
+  - Key em `PROCESSING` (corrida entre chamadas simultâneas) → retorna `409 Conflict`.
+
+**Model novo:**
+
+```prisma
+model IdempotencyKey {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  userId       String
+  endpoint     String
+  status       String   // "PROCESSING" | "COMPLETED"
+  responseBody Json?
+  statusCode   Int?
+  createdAt    DateTime @default(now())
+
+  @@index([key])
+}
+```
+
+**Onde implementar:** um `Interceptor` ou `Guard` global, não lógica espalhada em cada service — é uma preocupação transversal, no mesmo espírito do guard de autenticação.
+
+### 15.2 Rate Limiting
+
+**Problema que resolve:** proteger contra volume excessivo de requests — principalmente bugs de frontend (loop acidental), não abuso de terceiros, dado o perfil de uso pessoal do sistema.
+
+**Mecanismo:** biblioteca oficial `@nestjs/throttler`, configurada globalmente via `ThrottlerModule.forRoot()` e `ThrottlerGuard` como `APP_GUARD`. Sem necessidade de middleware manual — a lib já resolve janela de tempo, contador e expiração.
+
+**Rastreamento:** por `userId` (extraído do JWT), não por IP puro — IP isolado penalizaria uso legítimo do próprio usuário (ex: dashboard disparando várias chamadas em paralelo). Implementado via guard customizado estendendo `ThrottlerGuard`, sobrescrevendo `getTracker()`.
+
+**Limites diferenciados por tipo de rota:** rotas de leitura (`GET /reports/*`) podem ter limite mais permissivo; rotas de escrita (criação de `Transaction`, `FixedExpense`, etc.) mais restritivas — configurado via decorator `@Throttle()` por controller/rota, sobrescrevendo o limite global.
+
+**Armazenamento:** em memória (padrão da lib) é suficiente para o cenário atual de instância única. Caso a aplicação seja escalada para múltiplas instâncias no futuro, será necessário migrar para armazenamento compartilhado (ex: Redis via `@nest-lab/throttler-storage-redis`), pois o armazenamento em memória não é compartilhado entre instâncias diferentes.
