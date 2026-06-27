@@ -27,48 +27,46 @@ export class RefreshAuthService {
 
     const now = new Date();
     const payload = await this.verifyRefreshToken(refreshToken);
+    const tokenHash = hashToken(refreshToken);
 
-    const persistedRefreshToken = await this.prisma.refreshToken.findFirst({
-      where: {
-        tokenHash: hashToken(refreshToken),
-        revokedAt: null,
-        expiresAt: {
-          gt: now,
+    return this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.refreshToken.updateMany({
+        where: {
+          tokenHash,
+          revokedAt: null,
+          expiresAt: {
+            gt: now,
+          },
         },
-      },
-    });
+        data: { revokedAt: now },
+      });
 
-    if (!persistedRefreshToken) {
-      throw this.invalidRefreshTokenError();
-    }
+      if (count === 0) {
+        throw this.invalidRefreshTokenError();
+      }
 
-    const newRefreshToken =
-      await this.generateAuthTokensService.generateRefreshToken(
-        payload.sub,
-        payload.email,
-      );
+      const newRefreshToken =
+        await this.generateAuthTokensService.generateRefreshToken(
+          payload.sub,
+          payload.email,
+        );
 
-    await this.prisma.$transaction(async (tx) => {
       await tx.refreshToken.create({
         data: {
           userId: payload.sub,
           tokenHash: hashToken(newRefreshToken),
-          expiresAt: addDays(new Date(), 7),
+          expiresAt: addDays(now, 7),
         },
       });
 
-      await tx.refreshToken.update({
-        where: { id: persistedRefreshToken.id },
-        data: { revokedAt: new Date() },
-      });
+      const accessToken =
+        await this.generateAuthTokensService.generateAccessToken(
+          payload.sub,
+          payload.email,
+        );
+
+      return { accessToken, refreshToken: newRefreshToken };
     });
-
-    const accessToken = await this.generateAuthTokensService.generateAccessToken(
-      payload.sub,
-      payload.email,
-    );
-
-    return { accessToken, refreshToken: newRefreshToken };
   };
 
   private verifyRefreshToken = async (refreshToken: string) => {

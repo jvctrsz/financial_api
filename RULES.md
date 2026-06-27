@@ -142,15 +142,17 @@ model RefreshToken {
 ### Refresh Token — Rotação
 
 - Endpoint `POST /auth/refresh` recebe o `refreshToken` via cookie.
-- Calcula o `tokenHash` do token recebido e busca em `RefreshToken` onde `tokenHash` corresponde, `revokedAt IS NULL` e `expiresAt > now()`.
-- Se não encontrar (token revogado, expirado ou inválido) → rejeitar.
-- Se encontrar, dentro de uma única `prisma.$transaction`:
-  1. Gerar um novo `refreshToken` (JWT, 7 dias), calcular o novo `tokenHash`, **criar** o novo registro em `RefreshToken`.
-  2. **Depois**, marcar o registro antigo como `revokedAt = now()` — **o refresh token é rotacionado a cada uso**, nunca reutilizável.
-  3. Gerar novo `accessToken`.
-  4. Retornar o novo `accessToken` no body e o novo `refreshToken` no cookie (substituindo o antigo).
+- Calcula o `tokenHash` do token recebido.
+- Dentro de uma única `prisma.$transaction`:
+  1. **Revogar atomicamente** o registro ativo correspondente via `updateMany` condicional: `WHERE tokenHash = hash AND revokedAt IS NULL AND expiresAt > now()`, `SET revokedAt = now()`.
+  2. Se `count = 0` (nenhuma linha afetada) → rejeitar. Isso cobre token inválido, expirado, já revogado, **ou já consumido por outra chamada concorrente com o mesmo token de entrada**.
+  3. Se `count = 1` → esta é a única chamada que "ganhou o direito" de rotacionar este token. Gerar o novo `refreshToken` (JWT, 7 dias), calcular o novo `tokenHash`, criar o novo registro em `RefreshToken`.
+  4. Gerar novo `accessToken`.
+  5. Retornar o novo `accessToken` no body e o novo `refreshToken` no cookie (substituindo o antigo).
 
-> **Ordem dos passos 1–2:** criar o novo registro antes de revogar o antigo, nunca o inverso. Como tudo ocorre em uma transação, o resultado final é o mesmo em caso de sucesso — mas se outra requisição simultânea consultar `RefreshToken` enquanto a transação ainda está em andamento, essa ordem garante que, na pior hipótese, ela encontre dois tokens válidos por um instante (antigo + novo), nunca uma janela em que o usuário fique sem nenhum refresh token válido.
+> **Por que `updateMany` condicional, e não `findFirst` seguido de `update`/`create` separados:** ler o registro antes de revogá-lo cria uma janela onde duas chamadas concorrentes (duas abas, retry de rede, efeito duplicado de `StrictMode` no frontend) podem ler o **mesmo** token ainda ativo e ambas seguirem adiante, cada uma gerando sua própria rotação a partir da mesma origem — quebrando a garantia de "um token consumido gera no máximo um sucessor". Pior ainda: se o novo JWT gerado pelas duas chamadas for byte-a-byte idêntico (payload igual + `iat` com granularidade de segundo, no caso de chamadas no mesmo segundo), a segunda tentativa de `create` falha com erro de unicidade no `tokenHash` (`P2002`). O `updateMany` resolve a causa raiz: a revogação em si é a operação atômica que decide qual chamada "vence" — apenas uma altera a linha (`count = 1`); a(s) outra(s) recebe(m) `count = 0` e é(são) rejeitada(s) **antes** de gerar qualquer token novo.
+
+> **Causa raiz mais comum desse cenário em desenvolvimento:** o `React.StrictMode` monta, desmonta e remonta componentes propositalmente, executando `useEffect` duas vezes — se uma chamada a `/auth/refresh` for feita direto num `useEffect` de bootstrap sem guarda contra dupla execução, ela dispara duas requisições idênticas. O frontend deve protegê-lo com uma guarda (ex: `useRef`) para evitar a chamada duplicada; o backend, com o `updateMany` atômico acima, permanece correto mesmo que essa proteção falhe ou que a concorrência venha de outra origem legítima (duas abas abertas, app mobile + web simultâneos).
 
 > **Por que rotacionar:** se um `refreshToken` já rotacionado (revogado) for apresentado novamente em uma chamada futura, isso é sinal de que o token foi copiado/roubado — o dono legítimo já o trocou por um novo. A detecção e resposta automática a esse cenário (ex: revogar todas as sessões do usuário) é uma melhoria possível, não implementada nesta versão.
 
@@ -869,6 +871,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Deve rejeitar refresh token cujo registro já está `revokedAt IS NOT NULL` (token já rotacionado/revogado).
 - `POST /auth/refresh` deve revogar (`revokedAt = now()`) o registro antigo e criar um novo `RefreshToken` a cada chamada (rotação).
 - `POST /auth/refresh` deve retornar um novo `refreshToken` no cookie, diferente do anterior.
+- Duas chamadas concorrentes de `POST /auth/refresh` com o mesmo `refreshToken` de entrada: apenas uma deve ter sucesso; a outra deve ser rejeitada com erro de token inválido (nunca duas rotações bem-sucedidas a partir do mesmo token, e nunca erro de unique constraint vazando para o cliente).
 - `POST /auth/logout` deve marcar `revokedAt = now()` apenas no `RefreshToken` correspondente ao cookie enviado.
 - `POST /auth/logout` não deve afetar outros `RefreshToken` ativos do mesmo usuário (outras sessões).
 - `POST /auth/logout` deve limpar o cookie do `refreshToken` na resposta.

@@ -2,7 +2,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
-import { hashToken } from '../utils/hash-token.util';
+import * as hashTokenUtil from '../utils/hash-token.util';
 import { makePrisma, MockPrismaService } from './auth-test-utils';
 import { GenerateAuthTokensService } from './generate-auth-tokens.service';
 import { RefreshAuthService } from './refresh-auth.service';
@@ -37,19 +37,16 @@ describe('RefreshAuthService', () => {
     );
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('deve rotacionar refreshToken valido e renovar accessToken', async () => {
     (jwtService.verifyAsync as jest.Mock).mockResolvedValue({
       sub: 'user-1',
       email: 'user@example.com',
     });
-    prisma.refreshToken.findFirst.mockResolvedValue({
-      id: 'refresh-token-id',
-      userId: 'user-1',
-      tokenHash: hashToken('refresh-token'),
-      expiresAt: new Date('2026-06-20T00:00:00.000Z'),
-      revokedAt: null,
-      createdAt: new Date('2026-06-13T00:00:00.000Z'),
-    });
+    prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
     (
       generateAuthTokensService.generateRefreshToken as jest.Mock
     ).mockResolvedValue('new-refresh-token');
@@ -65,30 +62,29 @@ describe('RefreshAuthService', () => {
     expect(jwtService.verifyAsync).toHaveBeenCalledWith('refresh-token', {
       secret: 'refresh-secret',
     });
-    expect(prisma.refreshToken.findFirst).toHaveBeenCalledWith({
+    expect(prisma.refreshToken.findFirst).not.toHaveBeenCalled();
+    expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
       where: {
-        tokenHash: hashToken('refresh-token'),
+        tokenHash: hashTokenUtil.hashToken('refresh-token'),
         revokedAt: null,
         expiresAt: {
           gt: expect.any(Date),
         },
       },
+      data: { revokedAt: expect.any(Date) },
     });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(prisma.refreshToken.create).toHaveBeenCalledWith({
       data: {
         userId: 'user-1',
-        tokenHash: hashToken('new-refresh-token'),
+        tokenHash: hashTokenUtil.hashToken('new-refresh-token'),
         expiresAt: expect.any(Date),
       },
     });
-    expect(prisma.refreshToken.update).toHaveBeenCalledWith({
-      where: { id: 'refresh-token-id' },
-      data: { revokedAt: expect.any(Date) },
-    });
+    expect(prisma.refreshToken.update).not.toHaveBeenCalled();
     expect(
-      prisma.refreshToken.create.mock.invocationCallOrder[0],
-    ).toBeLessThan(prisma.refreshToken.update.mock.invocationCallOrder[0]);
+      prisma.refreshToken.updateMany.mock.invocationCallOrder[0],
+    ).toBeLessThan(prisma.refreshToken.create.mock.invocationCallOrder[0]);
   });
 
   it('deve rejeitar refreshToken invalido', async () => {
@@ -106,7 +102,7 @@ describe('RefreshAuthService', () => {
       sub: 'user-1',
       email: 'user@example.com',
     });
-    prisma.refreshToken.findFirst.mockResolvedValue(null);
+    prisma.refreshToken.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(service.refresh('missing-token')).rejects.toBeInstanceOf(
       UnauthorizedException,
@@ -121,20 +117,75 @@ describe('RefreshAuthService', () => {
       sub: 'user-1',
       email: 'user@example.com',
     });
-    prisma.refreshToken.findFirst.mockResolvedValue(null);
+    prisma.refreshToken.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(service.refresh('revoked-token')).rejects.toBeInstanceOf(
       UnauthorizedException,
     );
 
-    expect(prisma.refreshToken.findFirst).toHaveBeenCalledWith({
+    expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
       where: {
-        tokenHash: hashToken('revoked-token'),
+        tokenHash: hashTokenUtil.hashToken('revoked-token'),
         revokedAt: null,
         expiresAt: {
           gt: expect.any(Date),
         },
       },
+      data: { revokedAt: expect.any(Date) },
     });
+  });
+
+  it('deve permitir apenas uma rotação concorrente do mesmo refreshToken', async () => {
+    (jwtService.verifyAsync as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      email: 'user@example.com',
+    });
+    prisma.refreshToken.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+    (
+      generateAuthTokensService.generateRefreshToken as jest.Mock
+    ).mockResolvedValue('new-refresh-token');
+    (
+      generateAuthTokensService.generateAccessToken as jest.Mock
+    ).mockResolvedValue('new-access-token');
+
+    const results = await Promise.allSettled([
+      service.refresh('refresh-token'),
+      service.refresh('refresh-token'),
+    ]);
+
+    const fulfilled = results.filter((result) => result.status === 'fulfilled');
+    const rejected = results.filter((result) => result.status === 'rejected');
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toMatchObject({
+      reason: expect.any(UnauthorizedException),
+    });
+    expect(prisma.refreshToken.create).toHaveBeenCalledTimes(1);
+    expect(prisma.refreshToken.updateMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('deve calcular o tokenHash de entrada uma unica vez por chamada', async () => {
+    const hashTokenSpy = jest.spyOn(hashTokenUtil, 'hashToken');
+
+    (jwtService.verifyAsync as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      email: 'user@example.com',
+    });
+    prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+    (
+      generateAuthTokensService.generateRefreshToken as jest.Mock
+    ).mockResolvedValue('new-refresh-token');
+    (
+      generateAuthTokensService.generateAccessToken as jest.Mock
+    ).mockResolvedValue('new-access-token');
+
+    await service.refresh('refresh-token');
+
+    expect(
+      hashTokenSpy.mock.calls.filter(([token]) => token === 'refresh-token'),
+    ).toHaveLength(1);
   });
 });
