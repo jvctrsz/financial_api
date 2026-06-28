@@ -1,98 +1,166 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Financial API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Projeto pessoal em desenvolvimento.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+API REST de controle financeiro pessoal desenvolvida com NestJS, TypeScript, PostgreSQL e Prisma.
 
-## Description
+## Sobre o projeto
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+A aplicação permite organizar salários, períodos financeiros, cartões, categorias, transações, entradas mensais, gastos fixos, gastos parcelados, gastos à parte e relatórios de saldo.
 
-## Project setup
+## Tecnologias utilizadas
 
-```bash
-$ npm install
+* NestJS
+* TypeScript
+* PostgreSQL
+* Prisma ORM
+* Docker
+* JWT
+* Passport
+* Argon2
+* Cookie Parser
+* Class Validator
+* Class Transformer
+* date-fns
+* Jest
+
+## Funcionalidades
+
+### Autenticação
+
+* Cadastro de usuário
+* Login com access token JWT
+* Refresh token via cookie httpOnly
+* Rotação de refresh token
+* Logout da sessão atual
+* Hash de senha com Argon2
+* Rotas protegidas por autenticação
+
+### Usuários
+
+* Consulta dos dados do usuário autenticado
+* Atualização de dados do usuário
+* Isolamento dos dados por usuário autenticado
+
+### Categorias
+
+* Criação de categorias raiz
+* Criação de subcategorias
+* Listagem em formato de árvore
+* Soft delete de categorias
+* Validações para impedir remoção indevida de categorias em uso
+
+### Cartões
+
+* Cadastro de cartões
+* Definição de cartão padrão
+* Validação de dia de fechamento da fatura
+* Listagem dos cartões do usuário
+* Remoção de cartão com validações
+
+### Salários e períodos financeiros
+
+* Cadastro de salários
+* Geração automática de períodos financeiros
+* Fechamento automático do período anterior ao cadastrar novo salário
+* Consulta de salário vigente
+* Remoção controlada do salário mais recente para correção de cadastro
+
+### Transações
+
+* Cadastro de transações de crédito, débito e PIX
+* Soft delete de transações
+* Validação de categoria, cartão e usuário
+* Marcação de pagamento para ocorrências específicas de gastos fixos
+
+### Entradas mensais
+
+* Cadastro de entradas extras
+* Controle individual para definir se a entrada impacta ou não o saldo
+* Listagem por mês
+* Soft delete
+
+### Gastos fixos
+
+* Cadastro de gastos recorrentes
+* Geração de transações para o período financeiro
+* Controle de pagamento para gastos fixos via PIX ou débito
+* Soft delete com preservação do histórico
+
+### Gastos parcelados
+
+* Cadastro de gastos parcelados
+* Geração automática das parcelas como transações
+* Vínculo com períodos financeiros quando disponíveis
+* Soft delete preservando histórico passado
+
+### Gastos à parte
+
+* Cadastro de reservas ou separações de dinheiro
+* Suporte a gastos recorrentes e não recorrentes
+* Finalização de recorrência
+* Impacto direto no cálculo de saldo
+
+### Relatórios
+
+* Consulta de saldo disponível do período atual
+* Relatório completo por período financeiro
+* Relatório por fatura de cartão
+* Agrupamento de gastos por categoria e subcategoria
+
+## Regras de negócio importantes
+
+O sistema não trabalha apenas com mês calendário. A principal unidade de controle é o período financeiro, definido a partir da data real de recebimento do salário.
+
+Exemplo:
+
+```txt
+Salário recebido em 07/05
+Próximo salário recebido em 06/06
+
+Período financeiro:
+07/05 até 05/06
 ```
 
-## Compile and run the project
+O saldo disponível considera:
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```txt
+Saldo disponível =
+  salário do período
+  + entradas incluídas no saldo
+  - transações do período
+  - gastos à parte ativos no período
 ```
 
-## Run tests
+Outras decisões importantes:
 
-```bash
-# unit tests
-$ npm run test
+* O sistema é multiusuário.
+* Dados financeiros são sempre isolados por usuário autenticado.
+* Transações usam soft delete.
+* Entradas usam soft delete.
+* Gastos fixos, parcelados e à parte usam soft delete.
+* Salários e transações comuns são tratados como registros imutáveis.
+* Para corrigir uma transação, o usuário deve removê-la e criar uma nova.
+* O refresh token é armazenado no banco apenas como hash.
+* O logout revoga apenas a sessão atual.
+* Entradas mensais não impactam o saldo por padrão.
 
-# e2e tests
-$ npm run test:e2e
+## Status do projeto
 
-# test coverage
-$ npm run test:cov
-```
 
-## Deployment
+A API já possui módulos principais estruturados, autenticação, persistência com Prisma e regras de negócio financeiras implementadas em diferentes partes do sistema.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Ainda há pontos planejados para evolução, como:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+* Melhorar testes
+* Implementar rate limiting
+* Implementar idempotência em rotas de criação
+* Criar uma interface web para consumir a API
+* Estudar uso de Redis para cache, rate limiting ou filas
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+## Autor
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Desenvolvido por [João Victor Matias](https://github.com/jvctrsz).
 
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+* [LinkedIn](https://www.linkedin.com/in/jvctrsz)
+* [E-mail](mailto:jvictor26dev@gmail.com)
