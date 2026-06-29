@@ -2,9 +2,9 @@
 
 Projeto pessoal em desenvolvimento.
 
-> Projeto de aprendizado em back-end com NestJS. O projeto foi conduzido por mim, desde a definição das regras de negócio até a revisão das decisões técnicas, utilizando agentes de IA como apoio no planejamento, estudo e implementação.
+> Projeto de aprendizado em back-end com Nest.js. O projeto foi conduzido por mim, desde a definição das regras de negócio até a revisão das decisões técnicas, utilizando agentes de IA como apoio no planejamento, estudo e implementação.
 
-API REST de controle financeiro pessoal desenvolvida com NestJS, TypeScript, PostgreSQL e Prisma.
+API REST de controle financeiro pessoal desenvolvida com Nest.js, TypeScript, PostgreSQL e Prisma.
 
 ## Sobre o projeto
 
@@ -14,7 +14,7 @@ A aplicação permite organizar salários, períodos financeiros, cartões, cate
 
 O objetivo principal do projeto é estudar, na prática, conceitos como:
 
-* Estrutura modular com NestJS
+* Estrutura modular com Nest.js
 * Autenticação com access token e refresh token
 * Integração com PostgreSQL usando Prisma
 * Regras de negócio com múltiplas entidades
@@ -26,7 +26,7 @@ O objetivo principal do projeto é estudar, na prática, conceitos como:
 
 ## Tecnologias utilizadas
 
-* NestJS
+* Nest.js
 * TypeScript
 * PostgreSQL
 * Prisma ORM
@@ -345,7 +345,7 @@ GET /reports/billing?month=2025-05
 
 ## Status do projeto
 
-Este é meu primeiro projeto back-end com NestJS. O foco tem sido entender, na prática, fundamentos de arquitetura, autenticação, modelagem de dados e regras de negócio financeiras.
+Este é meu primeiro projeto back-end com Nest.js. O foco tem sido entender, na prática, fundamentos de arquitetura, autenticação, modelagem de dados e regras de negócio financeiras.
 
 A API já possui módulos principais estruturados, autenticação, persistência com Prisma e regras de negócio financeiras implementadas em diferentes partes do sistema.
 
@@ -360,7 +360,7 @@ Ainda há pontos planejados para evolução, como:
 
 ## Aprendizados
 
-Este projeto tem sido uma forma prática de aprofundar meus conhecimentos em back-end com NestJS.
+Este projeto tem sido uma forma prática de aprofundar meus conhecimentos em back-end com Nest.js.
 
 Durante o desenvolvimento, estudei e apliquei conceitos como JWT, refresh token, cookies httpOnly, Prisma, PostgreSQL, Docker, validação com DTOs, separação de responsabilidades, organização modular e regras de negócio financeiras.
 
