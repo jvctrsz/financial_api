@@ -533,15 +533,20 @@ PIX em 07/05:
 
 Ao criar um `InstallmentExpense`, o `InstallmentExpenseService` deve **automaticamente gerar todas as parcelas** como `Transaction` individuais via `CreateTransactionService` (injeção entre módulos), calculando `billingDate` e `periodId` para cada uma.
 
+`startMonth` **não é mais um campo enviado pelo cliente**. O cálculo de cada parcela passa a usar como base a **data real de cadastro** (`registrationDate = now()`), preservando o dia real (não mais forçado ao dia 01). Isso é necessário porque o `billingDate` de cada parcela depende do `closingDay` do cartão em relação ao dia real da compra — forçar o dia 01 podia jogar a parcela na fatura errada (ex: cadastro dia 07 com fechamento dia 06 deveria cair na fatura do mês seguinte, mas com `baseDate` no dia 01 caía incorretamente na fatura do mês corrente).
+
 **Algoritmo de geração de parcelas:**
 
 ```
+registrationDate = now() // data real de cadastro do InstallmentExpense
+
 Para i de 0 até totalInstallments - 1:
+  baseDate = registrationDate + i meses (preserva o dia de registrationDate)
+
   Se tem cardId:
-    baseDate = startMonth + i meses
     Aplicar regra de billingDate do cartão sobre baseDate
   Senão:
-    billingDate = startMonth + i meses (1º dia)
+    billingDate = baseDate
 
   Calcular periodId a partir do billingDate (regra de crédito)
   Se SalaryPeriod não existir para o mês: periodId = NULL
@@ -554,12 +559,13 @@ Para i de 0 até totalInstallments - 1:
     description    = "{description} — Parcela {i+1}/{totalInstallments}"
 ```
 
-> **Decisão (ponto 3):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanInstallmentsService` (seção 6) vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado. **No momento desta seção, esta é a única situação no sistema em que uma `Transaction` pode nascer com `periodId = NULL`** — parcelas de `InstallmentExpense` continuam vinculadas pelo mês da própria parcela (`billingDate`), não pela data de criação do gasto parcelado, pois representam um compromisso que se espalha mês a mês até o fim das parcelas. (`FixedExpense`, seção 8.1, nunca gera órfão, pois sua geração é sempre disparada por um `SalaryPeriod` já existente.)
+`startMonth` continua existindo na entidade `InstallmentExpense` (e no response), mas passa a ser derivado internamente como o primeiro dia do mês de `registrationDate` — serve apenas como referência/label do parcelamento, sem influenciar o cálculo das parcelas.
+
+> **Decisão (ponto 3, mantida):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanInstallmentsService` (seção 6) vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado. **No momento desta seção, esta é a única situação no sistema em que uma `Transaction` pode nascer com `periodId = NULL`** — parcelas de `InstallmentExpense` continuam vinculadas pelo mês da própria parcela (`billingDate`), não pela data de criação do gasto parcelado, pois representam um compromisso que se espalha mês a mês até o fim das parcelas. (`FixedExpense`, seção 8.1, nunca gera órfão, pois sua geração é sempre disparada por um `SalaryPeriod` já existente.) **Esta decisão não muda com a correção acima** — o que muda é apenas a base de cálculo do `baseDate`/`billingDate` de cada parcela (data real de cadastro, dia preservado), não o mecanismo de vínculo/órfã.
 
 ### Validações
 
 - `installmentAmount * totalInstallments` deve ser igual a `totalAmount`. Rejeitar se divergir (ou calcular automaticamente um dos dois — definir na implementação).
-- `startMonth` deve ser sempre o primeiro dia do mês (ex: `2025-05-01`).
 - `categoryId` deve ser subcategoria do `userId`.
 
 ### Soft Delete em Cascata
@@ -799,7 +805,9 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 **`InstallmentExpenseService`**
 
 - Deve gerar exatamente `totalInstallments` transações ao criar.
+- `baseDate` de cada parcela deve preservar o dia real de `registrationDate` (não forçar dia 01), avançando apenas o mês a cada parcela.
 - Cada parcela deve ter `billingDate` e `periodId` corretos, vinculados pelo mês da própria parcela.
+- Cadastro após o fechamento do cartão (ex: fechamento dia 06, cadastro dia 07) deve gerar `billingDate` no mês seguinte, refletindo a regra de crédito normal.
 - Parcelas sem `SalaryPeriod` devem ser criadas com `periodId = NULL` (nunca rejeitar).
 - Soft delete deve apagar parcelas futuras e preservar passadas.
 

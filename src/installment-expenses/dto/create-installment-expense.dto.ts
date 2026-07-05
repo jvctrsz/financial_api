@@ -1,5 +1,4 @@
 import {
-  IsDateString,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -25,9 +24,6 @@ export class CreateInstallmentExpenseDto {
   @IsInt()
   @Min(1)
   totalInstallments: number;
-
-  @IsDateString()
-  startMonth: string;
 
   @IsUUID()
   categoryId: string;

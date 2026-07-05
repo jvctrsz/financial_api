@@ -10,6 +10,7 @@ describe('CreateInstallmentExpenseService', () => {
   let createTransactionService: CreateTransactionService;
   let service: CreateInstallmentExpenseService;
 
+  const registrationDate = new Date('2025-07-07T10:30:00.000Z');
   const subcategory = {
     id: 'category-1',
     userId: 'user-1',
@@ -31,10 +32,13 @@ describe('CreateInstallmentExpenseService', () => {
   const period = {
     id: 'period-1',
     userId: 'user-1',
-    referenceMonth: new Date('2025-06-01T00:00:00.000Z'),
+    referenceMonth: new Date('2025-08-01T00:00:00.000Z'),
   };
 
   beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(registrationDate);
+
     prisma = makePrisma();
     createTransactionService = new CreateTransactionService(
       prisma as unknown as PrismaService,
@@ -56,14 +60,17 @@ describe('CreateInstallmentExpenseService', () => {
     );
   });
 
-  it('deve criar InstallmentExpense com deletedAt null e gerar exatamente totalInstallments transações', async () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('deve criar InstallmentExpense com startMonth derivado do mes de cadastro e gerar exatamente totalInstallments transacoes', async () => {
     await expect(
       service.createInstallmentExpense('user-1', {
         description: 'Notebook',
         totalAmount: 900,
         installmentAmount: 300,
         totalInstallments: 3,
-        startMonth: '2025-06-01',
         categoryId: 'category-1',
         cardId: 'card-1',
       }),
@@ -79,11 +86,36 @@ describe('CreateInstallmentExpenseService', () => {
         totalAmount: 900,
         installmentAmount: 300,
         totalInstallments: 3,
-        startMonth: new Date('2025-06-01T00:00:00.000Z'),
+        startMonth: new Date('2025-07-01T00:00:00.000Z'),
         deletedAt: null,
       },
     });
     expect(prisma.transaction.create).toHaveBeenCalledTimes(3);
+  });
+
+  it('deve preservar o dia real da registrationDate ao avancar as parcelas', async () => {
+    await service.createInstallmentExpense('user-1', {
+      description: 'Curso',
+      totalAmount: 600,
+      installmentAmount: 300,
+      totalInstallments: 2,
+      categoryId: 'category-1',
+    });
+
+    expect(prisma.transaction.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        type: TransactionType.DEBIT,
+        cardId: null,
+        transactionDate: new Date('2025-07-07T10:30:00.000Z'),
+        billingDate: new Date('2025-07-07T10:30:00.000Z'),
+      }),
+    });
+    expect(prisma.transaction.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({
+        transactionDate: new Date('2025-08-07T10:30:00.000Z'),
+        billingDate: new Date('2025-08-07T10:30:00.000Z'),
+      }),
+    });
   });
 
   it('deve gerar descricoes e preencher installmentExpenseId nas parcelas', async () => {
@@ -92,7 +124,6 @@ describe('CreateInstallmentExpenseService', () => {
       totalAmount: 600,
       installmentAmount: 300,
       totalInstallments: 2,
-      startMonth: '2025-06-01',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -111,15 +142,12 @@ describe('CreateInstallmentExpenseService', () => {
     });
   });
 
-  it('com cardId deve gerar transações CREDIT e calcular billingDate usando closingDay', async () => {
-    prisma.card.findFirst.mockResolvedValue({ ...card, closingDay: 1 });
-
+  it('com cadastro apos fechamento do cartao deve gerar billingDate no mes seguinte', async () => {
     await service.createInstallmentExpense('user-1', {
       description: 'Notebook',
       totalAmount: 300,
       installmentAmount: 300,
       totalInstallments: 1,
-      startMonth: '2025-06-01',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -128,45 +156,18 @@ describe('CreateInstallmentExpenseService', () => {
       data: expect.objectContaining({
         type: TransactionType.CREDIT,
         cardId: 'card-1',
-        billingDate: new Date('2025-07-01T00:00:00.000Z'),
+        transactionDate: new Date('2025-07-07T10:30:00.000Z'),
+        billingDate: new Date('2025-08-01T00:00:00.000Z'),
       }),
     });
   });
 
-  it('sem cardId deve gerar transações DEBIT com cardId null e billingDate igual ao baseDate', async () => {
-    await service.createInstallmentExpense('user-1', {
-      description: 'Curso',
-      totalAmount: 600,
-      installmentAmount: 300,
-      totalInstallments: 2,
-      startMonth: '2025-06-01',
-      categoryId: 'category-1',
-    });
-
-    expect(prisma.card.findFirst).not.toHaveBeenCalled();
-    expect(prisma.transaction.create).toHaveBeenNthCalledWith(1, {
-      data: expect.objectContaining({
-        type: TransactionType.DEBIT,
-        cardId: null,
-        transactionDate: new Date('2025-06-01T00:00:00.000Z'),
-        billingDate: new Date('2025-06-01T00:00:00.000Z'),
-      }),
-    });
-    expect(prisma.transaction.create).toHaveBeenNthCalledWith(2, {
-      data: expect.objectContaining({
-        transactionDate: new Date('2025-07-01T00:00:00.000Z'),
-        billingDate: new Date('2025-07-01T00:00:00.000Z'),
-      }),
-    });
-  });
-
-  it('deve preencher periodId quando existir SalaryPeriod para o billingDate', async () => {
+  it('deve preencher periodId quando existir SalaryPeriod para o referenceMonth do billingDate', async () => {
     await service.createInstallmentExpense('user-1', {
       description: 'Notebook',
       totalAmount: 300,
       installmentAmount: 300,
       totalInstallments: 1,
-      startMonth: '2025-06-01',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -174,7 +175,7 @@ describe('CreateInstallmentExpenseService', () => {
     expect(prisma.salaryPeriod.findFirst).toHaveBeenCalledWith({
       where: {
         userId: 'user-1',
-        referenceMonth: new Date('2025-06-01T00:00:00.000Z'),
+        referenceMonth: new Date('2025-08-01T00:00:00.000Z'),
       },
     });
     expect(prisma.transaction.create).toHaveBeenCalledWith({
@@ -184,7 +185,7 @@ describe('CreateInstallmentExpenseService', () => {
     });
   });
 
-  it('deve criar parcela com periodId null quando não existir SalaryPeriod', async () => {
+  it('deve criar parcela com periodId null quando nao existir SalaryPeriod', async () => {
     prisma.salaryPeriod.findFirst.mockResolvedValue(null);
 
     await service.createInstallmentExpense('user-1', {
@@ -192,7 +193,6 @@ describe('CreateInstallmentExpenseService', () => {
       totalAmount: 300,
       installmentAmount: 300,
       totalInstallments: 1,
-      startMonth: '2025-06-01',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -213,7 +213,6 @@ describe('CreateInstallmentExpenseService', () => {
         totalAmount: 300,
         installmentAmount: 300,
         totalInstallments: 1,
-        startMonth: '2025-06-01',
         categoryId: 'category-1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -240,7 +239,6 @@ describe('CreateInstallmentExpenseService', () => {
         totalAmount: 300,
         installmentAmount: 300,
         totalInstallments: 1,
-        startMonth: '2025-06-01',
         categoryId: 'category-1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -255,7 +253,6 @@ describe('CreateInstallmentExpenseService', () => {
         totalAmount: 300,
         installmentAmount: 300,
         totalInstallments: 1,
-        startMonth: '2025-06-01',
         categoryId: 'category-1',
         cardId: 'card-2',
       }),
@@ -269,19 +266,6 @@ describe('CreateInstallmentExpenseService', () => {
     });
   });
 
-  it('deve rejeitar startMonth que não seja primeiro dia do mes', async () => {
-    await expect(
-      service.createInstallmentExpense('user-1', {
-        description: 'Notebook',
-        totalAmount: 300,
-        installmentAmount: 300,
-        totalInstallments: 1,
-        startMonth: '2025-06-02',
-        categoryId: 'category-1',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
   it('deve rejeitar quando installmentAmount vezes totalInstallments diverge de totalAmount', async () => {
     await expect(
       service.createInstallmentExpense('user-1', {
@@ -289,7 +273,6 @@ describe('CreateInstallmentExpenseService', () => {
         totalAmount: 1000,
         installmentAmount: 300,
         totalInstallments: 3,
-        startMonth: '2025-06-01',
         categoryId: 'category-1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);

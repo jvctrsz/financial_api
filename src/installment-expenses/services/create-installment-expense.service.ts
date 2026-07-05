@@ -2,10 +2,7 @@
 import { Card, TransactionType } from '@prisma/client';
 import { addMonths } from 'date-fns';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  firstDayOfUtcMonth,
-  parseDateOnly,
-} from '../../salaries/utils/date-only.util';
+import { firstDayOfUtcMonth } from '../../salaries/utils/date-only.util';
 import { calculateCreditBillingDate } from '../../shared/helpers/billing-date.helper';
 import { CreateTransactionService } from '../../transactions/services/create-transaction.service';
 import { CreateInstallmentExpenseDto } from '../dto/create-installment-expense.dto';
@@ -23,9 +20,9 @@ export class CreateInstallmentExpenseService {
     userId: string,
     dto: CreateInstallmentExpenseDto,
   ) => {
-    const startMonth = parseDateOnly(dto.startMonth);
+    const registrationDate = new Date();
+    const startMonth = firstDayOfUtcMonth(registrationDate);
 
-    this.validateStartMonth(startMonth);
     this.validateInstallmentTotal(dto);
 
     const category = await this.findSubcategory(userId, dto.categoryId);
@@ -47,7 +44,7 @@ export class CreateInstallmentExpenseService {
       });
 
       for (let index = 0; index < dto.totalInstallments; index += 1) {
-        const baseDate = firstDayOfUtcMonth(addMonths(startMonth, index));
+        const baseDate = addMonths(registrationDate, index);
         const billingDate = this.calculateInstallmentBillingDate(
           baseDate,
           card,
@@ -114,14 +111,6 @@ export class CreateInstallmentExpenseService {
     }
 
     return card;
-  };
-
-  private validateStartMonth = (startMonth: Date) => {
-    if (startMonth.getUTCDate() !== 1) {
-      throw new BadRequestException(
-        'startMonth deve representar o primeiro dia do mês.',
-      );
-    }
   };
 
   private validateInstallmentTotal = (dto: CreateInstallmentExpenseDto) => {

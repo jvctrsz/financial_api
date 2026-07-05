@@ -43,7 +43,6 @@ describe('InstallmentExpensesController', () => {
       totalAmount: 3000,
       installmentAmount: 300,
       totalInstallments: 10,
-      startMonth: '2025-06-01',
       categoryId: 'category-1',
       cardId: 'card-1',
     };
