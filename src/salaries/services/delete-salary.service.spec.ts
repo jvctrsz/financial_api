@@ -40,7 +40,7 @@ describe('DeleteSalaryService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     unlinkOrphanInstallmentsService = {
-      unlinkOrphanInstallments: jest.fn().mockResolvedValue({ count: 0 }),
+      unlinkOrphanInstallments: jest.fn().mockResolvedValue(0),
     };
     service = new DeleteSalaryService(
       prisma as unknown as PrismaService,
@@ -51,7 +51,7 @@ describe('DeleteSalaryService', () => {
     prisma.salaryPeriod.findFirst
       .mockResolvedValueOnce(period)
       .mockResolvedValueOnce(previousPeriod);
-    prisma.transaction.findFirst.mockResolvedValue(null);
+    prisma.$queryRaw.mockResolvedValue([]);
     prisma.salaryPeriod.delete.mockResolvedValue(period);
     prisma.salary.delete.mockResolvedValue(salary);
     prisma.salaryPeriod.update.mockResolvedValue({
@@ -60,7 +60,7 @@ describe('DeleteSalaryService', () => {
     });
   });
 
-  it('deve permitir deletar o salário mais recente', async () => {
+  it('deve permitir deletar o salario mais recente', async () => {
     await expect(
       service.deleteSalary('user-1', 'salary-june'),
     ).resolves.toEqual(salary);
@@ -79,7 +79,7 @@ describe('DeleteSalaryService', () => {
     });
   });
 
-  it('deve rejeitar salário inexistente', async () => {
+  it('deve rejeitar salario inexistente', async () => {
     prisma.salary.findFirst.mockResolvedValue(null);
 
     await expect(
@@ -93,7 +93,7 @@ describe('DeleteSalaryService', () => {
     expect(prisma.salary.delete).not.toHaveBeenCalled();
   });
 
-  it('deve rejeitar salário de outro usuario', async () => {
+  it('deve rejeitar salario de outro usuario', async () => {
     prisma.salary.findFirst.mockResolvedValue(null);
 
     await expect(
@@ -108,7 +108,7 @@ describe('DeleteSalaryService', () => {
     });
   });
 
-  it('deve rejeitar delete de salário que não seja o mais recente', async () => {
+  it('deve rejeitar delete de salario que nao seja o mais recente', async () => {
     prisma.salaryPeriod.findFirst.mockReset();
     prisma.salaryPeriod.findFirst.mockResolvedValue({
       ...period,
@@ -127,34 +127,26 @@ describe('DeleteSalaryService', () => {
   });
 
   it.each([TransactionType.CREDIT, TransactionType.DEBIT, TransactionType.PIX])(
-    'deve bloquear delete se existir transação comum ativa vinculada ao periodo',
+    'deve bloquear delete se existir transacao ativa vinculada ao periodo',
     async (type) => {
-      prisma.transaction.findFirst.mockResolvedValue({
-        id: `transaction-${type.toLowerCase()}`,
-        type,
-      });
+      prisma.$queryRaw.mockResolvedValue([
+        {
+          id: `transaction-${type.toLowerCase()}`,
+          type,
+        },
+      ]);
 
       await expect(
         service.deleteSalary('user-1', 'salary-june'),
       ).rejects.toBeInstanceOf(BadRequestException);
 
-      expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
-        where: {
-          periodId: 'period-june',
-          installmentExpenseId: null,
-          deletedAt: null,
-          type: {
-            in: [
-              TransactionType.CREDIT,
-              TransactionType.DEBIT,
-              TransactionType.PIX,
-            ],
-          },
-        },
-        select: {
-          id: true,
-        },
-      });
+      expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+      expect(prisma.$queryRaw.mock.calls[0][0].values).toEqual([
+        'period-june',
+        TransactionType.CREDIT,
+        TransactionType.DEBIT,
+        TransactionType.PIX,
+      ]);
       expect(
         unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
       ).not.toHaveBeenCalled();
@@ -163,34 +155,56 @@ describe('DeleteSalaryService', () => {
     },
   );
 
-  it.each([TransactionType.CREDIT, TransactionType.DEBIT, TransactionType.PIX])(
-    'não deve bloquear delete se a única transação comum vinculada estiver soft-deletada',
-    async () => {
-      await expect(
-        service.deleteSalary('user-1', 'salary-june'),
-      ).resolves.toEqual(salary);
+  it('deve bloquear delete se existir parcela 0 ativa vinculada ao periodo', async () => {
+    prisma.$queryRaw.mockResolvedValue([
+      {
+        id: 'installment-transaction-1',
+        type: TransactionType.CREDIT,
+        installmentExpenseId: 'installment-expense-1',
+      },
+    ]);
 
-      expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
-        where: {
-          periodId: 'period-june',
-          installmentExpenseId: null,
-          deletedAt: null,
-          type: {
-            in: [
-              TransactionType.CREDIT,
-              TransactionType.DEBIT,
-              TransactionType.PIX,
-            ],
-          },
-        },
-        select: {
-          id: true,
-        },
-      });
-    },
-  );
+    await expect(
+      service.deleteSalary('user-1', 'salary-june'),
+    ).rejects.toBeInstanceOf(BadRequestException);
 
-  it('deve desvincular transações soft-deletadas antes do hard delete do SalaryPeriod', async () => {
+    const query = prisma.$queryRaw.mock.calls[0][0];
+
+    expect(query.sql).toContain('date_trunc');
+    expect(query.sql).toContain('"transactionDate"');
+    expect(query.sql).toContain('"startMonth"');
+    expect(
+      unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('nao deve bloquear delete se houver apenas parcelas futuras ativas vinculadas', async () => {
+    await expect(
+      service.deleteSalary('user-1', 'salary-june'),
+    ).resolves.toEqual(salary);
+
+    expect(
+      unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
+    ).toHaveBeenCalledWith(
+      {
+        periodId: 'period-june',
+      },
+      prisma,
+    );
+  });
+
+  it('nao deve bloquear delete se a unica transacao vinculada estiver soft-deletada', async () => {
+    await expect(
+      service.deleteSalary('user-1', 'salary-june'),
+    ).resolves.toEqual(salary);
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(prisma.$queryRaw.mock.calls[0][0].sql).toContain(
+      't."deletedAt" IS NULL',
+    );
+  });
+
+  it('deve desvincular transacoes soft-deletadas antes do hard delete do SalaryPeriod', async () => {
     await service.deleteSalary('user-1', 'salary-june');
 
     expect(
@@ -208,23 +222,6 @@ describe('DeleteSalaryService', () => {
     expect(prisma.salaryPeriod.delete).toHaveBeenCalledWith({
       where: { id: 'period-june' },
     });
-  });
-
-  it('deve desvincular parcelas antes de deletar', async () => {
-    await service.deleteSalary('user-1', 'salary-june');
-
-    expect(
-      unlinkOrphanInstallmentsService.unlinkOrphanInstallments,
-    ).toHaveBeenCalledWith(
-      {
-        periodId: 'period-june',
-      },
-      prisma,
-    );
-    expect(
-      unlinkOrphanInstallmentsService.unlinkOrphanInstallments.mock
-        .invocationCallOrder[0],
-    ).toBeLessThan(prisma.salaryPeriod.delete.mock.invocationCallOrder[0]);
   });
 
   it('deve fazer hard delete do SalaryPeriod', async () => {
@@ -252,7 +249,7 @@ describe('DeleteSalaryService', () => {
     });
   });
 
-  it('deve buscar o periodo anterior por endedAt igual ao paidAt do salário menos um dia', async () => {
+  it('deve buscar o periodo anterior por endedAt igual ao paidAt do salario menos um dia', async () => {
     await service.deleteSalary('user-1', 'salary-june');
 
     expect(prisma.salaryPeriod.findFirst).toHaveBeenNthCalledWith(2, {
@@ -263,7 +260,7 @@ describe('DeleteSalaryService', () => {
     });
   });
 
-  it('não deve usar orderBy para escolher o periodo anterior', async () => {
+  it('nao deve usar orderBy para escolher o periodo anterior', async () => {
     await service.deleteSalary('user-1', 'salary-june');
 
     expect(prisma.salaryPeriod.findFirst.mock.calls[1][0]).not.toHaveProperty(
@@ -271,7 +268,7 @@ describe('DeleteSalaryService', () => {
     );
   });
 
-  it('deve funcionar quando não houver periodo anterior', async () => {
+  it('deve funcionar quando nao houver periodo anterior', async () => {
     prisma.salaryPeriod.findFirst.mockReset();
     prisma.salaryPeriod.findFirst
       .mockResolvedValueOnce(period)

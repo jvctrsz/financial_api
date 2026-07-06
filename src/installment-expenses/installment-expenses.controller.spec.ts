@@ -1,3 +1,4 @@
+import { InstallmentPaymentMethod } from '@prisma/client';
 import { CreateInstallmentExpenseDto } from './dto/create-installment-expense.dto';
 import { InstallmentExpensesController } from './installment-expenses.controller';
 
@@ -43,6 +44,7 @@ describe('InstallmentExpensesController', () => {
       totalAmount: 3000,
       installmentAmount: 300,
       totalInstallments: 10,
+      paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
       categoryId: 'category-1',
       cardId: 'card-1',
     };

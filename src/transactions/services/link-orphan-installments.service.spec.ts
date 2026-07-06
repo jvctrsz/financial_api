@@ -13,77 +13,50 @@ describe('LinkOrphanInstallmentsService', () => {
     service = new LinkOrphanInstallmentsService(
       prisma as unknown as PrismaService,
     );
-    prisma.transaction.updateMany.mockResolvedValue({ count: 1 });
+    prisma.$executeRaw.mockResolvedValue(1);
   });
 
-  it('deve vincular parcelas de InstallmentExpense orfas do usuario e billingDate informados', async () => {
+  it('deve vincular parcelas orfas pelo mes de transactionDate', async () => {
     await expect(
       service.linkOrphanInstallments({
         userId: 'user-1',
         periodId: 'period-june',
         referenceMonth,
       }),
-    ).resolves.toEqual({ count: 1 });
+    ).resolves.toBe(1);
 
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: {
-        userId: 'user-1',
-        installmentExpenseId: {
-          not: null,
-        },
-        periodId: null,
-        billingDate: referenceMonth,
-      },
-      data: {
-        periodId: 'period-june',
-      },
-    });
+    const query = prisma.$executeRaw.mock.calls[0][0];
+
+    expect(query.sql).toContain('UPDATE "transactions"');
+    expect(query.sql).toContain('"periodId" IS NULL');
+    expect(query.sql).toContain('"installmentExpenseId" IS NOT NULL');
+    expect(query.sql).toContain('date_trunc(\'month\', "transactionDate")');
+    expect(query.sql).not.toContain('"billingDate"');
+    expect(query.values).toEqual(['period-june', 'user-1', referenceMonth]);
   });
 
-  it('não deve alterar parcelas de outro usuario', async () => {
+  it('deve filtrar pelo usuario informado', async () => {
     await service.linkOrphanInstallments({
       userId: 'user-1',
       periodId: 'period-june',
       referenceMonth,
     });
 
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        userId: 'user-1',
-      }),
-      data: expect.any(Object),
-    });
+    expect(prisma.$executeRaw.mock.calls[0][0].sql).toContain(
+      '"userId" =',
+    );
   });
 
-  it('não deve alterar transações sem installmentExpenseId', async () => {
+  it('nao deve afetar transacoes comuns, parcelas ja vinculadas ou fixed expenses', async () => {
     await service.linkOrphanInstallments({
       userId: 'user-1',
       periodId: 'period-june',
       referenceMonth,
     });
 
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        installmentExpenseId: {
-          not: null,
-        },
-      }),
-      data: expect.any(Object),
-    });
-  });
+    const query = prisma.$executeRaw.mock.calls[0][0];
 
-  it('não deve alterar parcelas com periodId ja preenchido', async () => {
-    await service.linkOrphanInstallments({
-      userId: 'user-1',
-      periodId: 'period-june',
-      referenceMonth,
-    });
-
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        periodId: null,
-      }),
-      data: expect.any(Object),
-    });
+    expect(query.sql).toContain('"installmentExpenseId" IS NOT NULL');
+    expect(query.sql).toContain('"periodId" IS NULL');
   });
 });

@@ -3,10 +3,14 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { TransactionType } from '@prisma/client';
+import { Prisma, TransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UnlinkOrphanInstallmentsService } from '../../transactions/services/unlink-orphan-installments.service';
 import { subUtcDateOnlyDays } from '../utils/date-only.util';
+
+type BlockingTransaction = {
+  id: string;
+};
 
 @Injectable()
 export class DeleteSalaryService {
@@ -45,23 +49,26 @@ export class DeleteSalaryService {
         );
       }
 
-      const blockingTransaction = await tx.transaction.findFirst({
-        where: {
-          periodId: periodBeingDeleted.id,
-          installmentExpenseId: null,
-          deletedAt: null,
-          type: {
-            in: [
-              TransactionType.CREDIT,
-              TransactionType.DEBIT,
-              TransactionType.PIX,
-            ],
-          },
-        },
-        select: {
-          id: true,
-        },
-      });
+      const [blockingTransaction] = await tx.$queryRaw<BlockingTransaction[]>(
+        Prisma.sql`
+          SELECT t.id
+          FROM "transactions" AS t
+          LEFT JOIN "installment_expenses" AS ie
+            ON ie.id = t."installmentExpenseId"
+          WHERE t."periodId" = ${periodBeingDeleted.id}::uuid
+            AND t."deletedAt" IS NULL
+            AND t."type" IN (
+              ${TransactionType.CREDIT}::"TransactionType",
+              ${TransactionType.DEBIT}::"TransactionType",
+              ${TransactionType.PIX}::"TransactionType"
+            )
+            AND (
+              t."installmentExpenseId" IS NULL
+              OR date_trunc('month', t."transactionDate")::date = date_trunc('month', ie."startMonth")::date
+            )
+          LIMIT 1
+        `,
+      );
 
       if (blockingTransaction) {
         throw new BadRequestException(

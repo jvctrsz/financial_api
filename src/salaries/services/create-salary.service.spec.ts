@@ -18,7 +18,7 @@ describe('CreateSalaryService', () => {
   beforeEach(() => {
     prisma = makePrisma();
     linkOrphanInstallmentsService = {
-      linkOrphanInstallments: jest.fn().mockResolvedValue({ count: 0 }),
+      linkOrphanInstallments: jest.fn().mockResolvedValue(0),
     };
     generateFixedExpenseTransactionsService = {
       generateFixedExpenseTransactions: jest.fn().mockResolvedValue([]),
@@ -70,8 +70,16 @@ describe('CreateSalaryService', () => {
         referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
       },
     });
+    expect(linkOrphanInstallmentsService.linkOrphanInstallments).toHaveBeenCalledWith(
+      {
+        userId: 'user-1',
+        periodId: 'period-1',
+        referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
+      },
+      prisma,
+    );
     expect(
-      linkOrphanInstallmentsService.linkOrphanInstallments,
+      generateFixedExpenseTransactionsService.generateFixedExpenseTransactions,
     ).toHaveBeenCalledWith(
       {
         userId: 'user-1',
@@ -85,16 +93,6 @@ describe('CreateSalaryService', () => {
     ).toBeLessThan(
       linkOrphanInstallmentsService.linkOrphanInstallments.mock
         .invocationCallOrder[0],
-    );
-    expect(
-      generateFixedExpenseTransactionsService.generateFixedExpenseTransactions,
-    ).toHaveBeenCalledWith(
-      {
-        userId: 'user-1',
-        periodId: 'period-1',
-        referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
-      },
-      prisma,
     );
     expect(
       linkOrphanInstallmentsService.linkOrphanInstallments.mock
@@ -160,9 +158,7 @@ describe('CreateSalaryService', () => {
       where: { id: 'period-may' },
       data: { endedAt: new Date('2025-06-05T00:00:00.000Z') },
     });
-    expect(
-      linkOrphanInstallmentsService.linkOrphanInstallments,
-    ).toHaveBeenCalledWith(
+    expect(linkOrphanInstallmentsService.linkOrphanInstallments).toHaveBeenCalledWith(
       {
         userId: 'user-1',
         periodId: 'period-june',

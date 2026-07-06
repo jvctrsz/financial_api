@@ -1,5 +1,10 @@
 ﻿import { BadRequestException, Injectable } from '@nestjs/common';
-import { Card, TransactionType } from '@prisma/client';
+import {
+  Card,
+  InstallmentPaymentMethod,
+  Prisma,
+  TransactionType,
+} from '@prisma/client';
 import { addMonths } from 'date-fns';
 import { PrismaService } from '../../prisma/prisma.service';
 import { firstDayOfUtcMonth } from '../../salaries/utils/date-only.util';
@@ -8,6 +13,7 @@ import { CreateTransactionService } from '../../transactions/services/create-tra
 import { CreateInstallmentExpenseDto } from '../dto/create-installment-expense.dto';
 
 const toCents = (value: number): number => Math.round(value * 100);
+type PrismaTransactionClient = PrismaService | Prisma.TransactionClient;
 
 @Injectable()
 export class CreateInstallmentExpenseService {
@@ -26,7 +32,7 @@ export class CreateInstallmentExpenseService {
     this.validateInstallmentTotal(dto);
 
     const category = await this.findSubcategory(userId, dto.categoryId);
-    const card = dto.cardId ? await this.findCard(userId, dto.cardId) : null;
+    const { card, type } = await this.resolvePaymentMethod(userId, dto);
 
     return this.prisma.$transaction(async (tx) => {
       const installmentExpense = await tx.installmentExpense.create({
@@ -38,6 +44,7 @@ export class CreateInstallmentExpenseService {
           totalAmount: dto.totalAmount,
           installmentAmount: dto.installmentAmount,
           totalInstallments: dto.totalInstallments,
+          paymentMethod: dto.paymentMethod,
           startMonth,
           deletedAt: null,
         },
@@ -49,13 +56,14 @@ export class CreateInstallmentExpenseService {
           baseDate,
           card,
         );
-        const type = card ? TransactionType.CREDIT : TransactionType.DEBIT;
-        const period = await tx.salaryPeriod.findFirst({
-          where: {
-            userId,
-            referenceMonth: firstDayOfUtcMonth(billingDate),
-          },
-        });
+        const periodId =
+          index === 0
+            ? await this.resolveCurrentInstallmentPeriodId(tx, userId, baseDate)
+            : await this.resolveFutureInstallmentPeriodId(
+                tx,
+                userId,
+                baseDate,
+              );
 
         await this.createTransactionService.createTransactionInternal(
           {
@@ -65,7 +73,7 @@ export class CreateInstallmentExpenseService {
             installmentExpenseId: installmentExpense.id,
             fixedExpenseId: null,
             paid: null,
-            periodId: period?.id ?? null,
+            periodId,
             type,
             amount: dto.installmentAmount,
             description: `${dto.description} — Parcela ${index + 1}/${dto.totalInstallments}`,
@@ -98,6 +106,33 @@ export class CreateInstallmentExpenseService {
     return category;
   };
 
+  private resolvePaymentMethod = async (
+    userId: string,
+    dto: CreateInstallmentExpenseDto,
+  ) => {
+    if (dto.paymentMethod === InstallmentPaymentMethod.BOLETO) {
+      if (dto.cardId) {
+        throw new BadRequestException(
+          'Gasto parcelado em boleto não pode ter cartão.',
+        );
+      }
+
+      return {
+        card: null,
+        type: TransactionType.DEBIT,
+      };
+    }
+
+    const card = dto.cardId
+      ? await this.findCard(userId, dto.cardId)
+      : await this.findDefaultCard(userId);
+
+    return {
+      card,
+      type: TransactionType.CREDIT,
+    };
+  };
+
   private findCard = async (userId: string, cardId: string) => {
     const card = await this.prisma.card.findFirst({
       where: {
@@ -108,6 +143,23 @@ export class CreateInstallmentExpenseService {
 
     if (!card) {
       throw new BadRequestException('Cartão não encontrado.');
+    }
+
+    return card;
+  };
+
+  private findDefaultCard = async (userId: string) => {
+    const card = await this.prisma.card.findFirst({
+      where: {
+        userId,
+        isDefault: true,
+      },
+    });
+
+    if (!card) {
+      throw new BadRequestException(
+        'Nenhum cartão padrão definido. Defina um cartão padrão ou informe o cardId.',
+      );
     }
 
     return card;
@@ -134,6 +186,55 @@ export class CreateInstallmentExpenseService {
     }
 
     return calculateCreditBillingDate(baseDate, card.closingDay);
+  };
+
+  private resolveCurrentInstallmentPeriodId = async (
+    tx: PrismaTransactionClient,
+    userId: string,
+    baseDate: Date,
+  ) => {
+    const period = await tx.salaryPeriod.findFirst({
+      where: {
+        userId,
+        startedAt: {
+          lte: baseDate,
+        },
+        OR: [
+          {
+            endedAt: {
+              gte: baseDate,
+            },
+          },
+          {
+            endedAt: null,
+          },
+        ],
+      },
+      orderBy: { startedAt: 'desc' },
+    });
+
+    if (!period) {
+      throw new BadRequestException(
+        'Cadastre seu salário antes de registrar transações.',
+      );
+    }
+
+    return period.id;
+  };
+
+  private resolveFutureInstallmentPeriodId = async (
+    tx: PrismaTransactionClient,
+    userId: string,
+    baseDate: Date,
+  ) => {
+    const period = await tx.salaryPeriod.findFirst({
+      where: {
+        userId,
+        referenceMonth: firstDayOfUtcMonth(baseDate),
+      },
+    });
+
+    return period?.id ?? null;
   };
 }
 

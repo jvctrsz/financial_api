@@ -15,6 +15,8 @@ export type MockPrismaService = {
     findFirst: jest.Mock;
     updateMany: jest.Mock;
   };
+  $executeRaw: jest.Mock;
+  $queryRaw: jest.Mock;
   $transaction: jest.Mock;
 };
 
@@ -36,6 +38,8 @@ export const makePrisma = (): MockPrismaService => {
       findFirst: jest.fn(),
       updateMany: jest.fn(),
     },
+    $executeRaw: jest.fn(),
+    $queryRaw: jest.fn(),
     $transaction: jest.fn(<T>(callback: (tx: MockPrismaService) => Promise<T>) =>
       callback(prisma),
     ),

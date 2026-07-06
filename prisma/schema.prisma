@@ -114,6 +114,11 @@ enum TransactionType {
   PIX
 }
 
+enum InstallmentPaymentMethod {
+  CREDIT_CARD
+  BOLETO
+}
+
 model Transaction {
   id                   String              @id @default(uuid(7)) @db.Uuid
   userId               String              @db.Uuid
@@ -155,6 +160,7 @@ model InstallmentExpense {
   totalAmount       Decimal       @db.Decimal(12, 2)
   installmentAmount Decimal       @db.Decimal(12, 2)
   totalInstallments Int
+  paymentMethod     InstallmentPaymentMethod
   startMonth        DateTime      @db.Date
   deletedAt         DateTime?
   createdAt         DateTime      @default(now())

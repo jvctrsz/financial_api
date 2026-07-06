@@ -18,25 +18,21 @@ export class UnlinkOrphanInstallmentsService {
   ) => {
     const { periodId } = params;
 
-    return prismaClient.transaction.updateMany({
-      where: {
-        periodId,
-        OR: [
-          {
-            installmentExpenseId: {
-              not: null,
-            },
-          },
-          {
-            deletedAt: {
-              not: null,
-            },
-          },
-        ],
-      },
-      data: {
-        periodId: null,
-      },
-    });
+    return prismaClient.$executeRaw(Prisma.sql`
+      UPDATE "transactions" AS t
+      SET "periodId" = NULL
+      WHERE t."periodId" = ${periodId}::uuid
+        AND (
+          (
+            t."installmentExpenseId" IS NOT NULL
+            AND date_trunc('month', t."transactionDate")::date <> (
+              SELECT date_trunc('month', ie."startMonth")::date
+              FROM "installment_expenses" AS ie
+              WHERE ie.id = t."installmentExpenseId"
+            )
+          )
+          OR t."deletedAt" IS NOT NULL
+        )
+    `);
   };
 }

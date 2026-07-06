@@ -11,92 +11,48 @@ describe('UnlinkOrphanInstallmentsService', () => {
     service = new UnlinkOrphanInstallmentsService(
       prisma as unknown as PrismaService,
     );
-    prisma.transaction.updateMany.mockResolvedValue({ count: 1 });
+    prisma.$executeRaw.mockResolvedValue(1);
   });
 
-  it('deve voltar periodId para NULL em parcelas ou transações soft-deletadas do periodo informado', async () => {
+  it('deve desvincular parcelas futuras e transacoes soft-deletadas do periodo informado', async () => {
     await expect(
       service.unlinkOrphanInstallments({
         periodId: 'period-june',
       }),
-    ).resolves.toEqual({ count: 1 });
+    ).resolves.toBe(1);
 
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: {
-        periodId: 'period-june',
-        OR: [
-          {
-            installmentExpenseId: {
-              not: null,
-            },
-          },
-          {
-            deletedAt: {
-              not: null,
-            },
-          },
-        ],
-      },
-      data: {
-        periodId: null,
-      },
-    });
+    const query = prisma.$executeRaw.mock.calls[0][0];
+
+    expect(query.sql).toContain('UPDATE "transactions" AS t');
+    expect(query.sql).toContain('SET "periodId" = NULL');
+    expect(query.sql).toContain('t."periodId" =');
+    expect(query.sql).toContain('t."installmentExpenseId" IS NOT NULL');
+    expect(query.sql).toContain('t."deletedAt" IS NOT NULL');
+    expect(query.values).toEqual(['period-june']);
   });
 
-  it('deve desvincular transação comum soft-deletada de qualquer tipo', async () => {
+  it('deve identificar parcelas futuras comparando transactionDate com startMonth', async () => {
     await service.unlinkOrphanInstallments({
       periodId: 'period-june',
     });
 
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        OR: expect.arrayContaining([
-          {
-            deletedAt: {
-              not: null,
-            },
-          },
-        ]),
-      }),
-      data: expect.any(Object),
-    });
+    const query = prisma.$executeRaw.mock.calls[0][0];
+
+    expect(query.sql).toContain(
+      'date_trunc(\'month\', t."transactionDate")::date <>',
+    );
+    expect(query.sql).toContain('date_trunc(\'month\', ie."startMonth")::date');
+    expect(query.sql).toContain('"installment_expenses" AS ie');
   });
 
-  it('não deve afetar transações comuns ativas', async () => {
+  it('deve preservar parcela 0 ativa e transacoes comuns ativas', async () => {
     await service.unlinkOrphanInstallments({
       periodId: 'period-june',
     });
 
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: {
-        periodId: 'period-june',
-        OR: [
-          {
-            installmentExpenseId: {
-              not: null,
-            },
-          },
-          {
-            deletedAt: {
-              not: null,
-            },
-          },
-        ],
-      },
-      data: expect.any(Object),
-    });
-  });
+    const query = prisma.$executeRaw.mock.calls[0][0];
 
-  it('não deve afetar transações de outros periodos', async () => {
-    await service.unlinkOrphanInstallments({
-      periodId: 'period-june',
-    });
-
-    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
-      where: expect.objectContaining({
-        periodId: 'period-june',
-      }),
-      data: expect.any(Object),
-    });
+    expect(query.sql).toContain('OR t."deletedAt" IS NOT NULL');
+    expect(query.sql).not.toContain('t."installmentExpenseId" IS NULL');
   });
 });

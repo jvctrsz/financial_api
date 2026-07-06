@@ -88,7 +88,7 @@ Campos de relacionamento que apontam para esses identificadores devem permanecer
 Decisão de arquitetura para evitar duplicação de lógica:
 
 - **Helpers** — lógica pura de cálculo, sem acesso a banco, sem dependências de outros serviços. Vivem em `src/shared/helpers/`. Exemplos: cálculo de `billingDate`, cálculo de `referenceMonth`, transformações de data.
-- **Injeção entre módulos** — quando o caso de uso envolve banco ou regra de negócio de outro módulo. Exemplos: `CreateTransactionService` injetado no `InstallmentExpenseService`, `LinkOrphanInstallmentsService` injetado no `CreateSalaryService`.
+- **Injeção entre módulos** — quando o caso de uso envolve banco ou regra de negócio de outro módulo. Exemplos: `CreateTransactionService` injetado no `InstallmentExpenseService`, `GenerateFixedExpenseTransactionsService` injetado no `CreateSalaryService`.
 
 > **Regra prática:** se precisa de banco ou de regra de negócio de outro módulo, injeta. Se é lógica pura de cálculo, vira helper.
 
@@ -331,11 +331,13 @@ O `CreateSalaryService` executa os seguintes passos em ordem:
 
 > **Atomicidade:** a partir da introdução do passo 6, todos os passos 1–6 devem ser executados dentro de uma única `prisma.$transaction`. Com mais passos e múltiplas escritas (potencialmente N transações de gastos fixos), uma falha no meio do fluxo não pode deixar o sistema em estado inconsistente (ex: `SalaryPeriod` criado sem as despesas fixas correspondentes, ou vice-versa). Se qualquer passo falhar, toda a operação deve ser revertida.
 
-> **Nota:** este passo 5 só tem efeito sobre parcelas de `InstallmentExpense` (ver seção 8). Transações de crédito comuns (`Transaction`) nunca ficam órfãs — seu `periodId` é resolvido pela data real da compra no momento da criação (ver seção 7), então não há nada para religar aqui.
+> **Nota (modelo híbrido, seção 8):** transações de crédito comuns (`Transaction`) e a **parcela 0** (a do mês corrente) de `InstallmentExpense` nunca ficam órfãs — seu `periodId` é resolvido pela data real da compra/parcela no momento da criação, sempre contra o período mais recente aberto (ver seção 7 e 8). **Parcelas futuras** (índice ≥ 1) podem sim nascer órfãs, porque representam compromissos de meses que ainda não têm salário cadastrado — são religadas pelo `LinkOrphanInstallmentsService` abaixo.
 
 ### LinkOrphanInstallmentsService
 
-Service dedicado, chamado pelo `CreateSalaryService` após criar o novo `SalaryPeriod`. Responsabilidade única: vincular **parcelas de `InstallmentExpense`** órfãs ao período recém-criado. **Não atua sobre `Transaction` de crédito comum** — apenas sobre `Transaction`s geradas como parcela (`installmentExpenseId IS NOT NULL`).
+Service dedicado, chamado pelo `CreateSalaryService` após criar o novo `SalaryPeriod`. Responsabilidade única: vincular **parcelas futuras de `InstallmentExpense`** órfãs ao período recém-criado. **Não atua sobre `Transaction` de crédito comum nem sobre a parcela 0** — apenas sobre parcelas `Transaction` com `installmentExpenseId IS NOT NULL` e `periodId IS NULL`.
+
+O match usa o mês de **`transactionDate`** (o `baseDate` da parcela, salvo em `Transaction.transactionDate`) — **nunca** o `billingDate` (que é só fatura). Isso é o que corrige o bug relatado originalmente: usar `billingDate` no match podia empurrar a parcela para o mês errado quando o cartão fechava antes do dia da parcela.
 
 ```sql
 UPDATE transactions
@@ -343,10 +345,10 @@ SET period_id = :periodId
 WHERE user_id = :userId
   AND installment_expense_id IS NOT NULL
   AND period_id IS NULL
-  AND billing_date = :referenceMonth
+  AND date_trunc('month', transaction_date) = :referenceMonth
 ```
 
-> **Decisão (ponto 1, revisada):** parcelas de `InstallmentExpense` podem ser criadas com `periodId = NULL` quando o `SalaryPeriod` do mês da parcela ainda não existe — isso é esperado, já que parcelas futuras distantes (ex: parcela 12/12) frequentemente cobrem meses para os quais nenhum salário foi cadastrado ainda. A ausência de período nunca impede a geração das parcelas. O vínculo é feito automaticamente pelo `LinkOrphanInstallmentsService` quando o salário correspondente for cadastrado. **Transações de crédito comuns não usam mais este mecanismo** (ver seção 7) — elas sempre nascem com `periodId` resolvido, pois sua data de referência é a data real da compra (presente ou passado), que sempre tem um `SalaryPeriod` vigente.
+> **Decisão (ponto 1, revisada — modelo híbrido):** apenas parcelas com índice ≥ 1 (futuras) podem nascer com `periodId = NULL`, quando o `SalaryPeriod` do mês exato de `transactionDate` ainda não existe — isso é esperado, já que parcelas futuras distantes (ex: parcela 12/12) frequentemente cobrem meses para os quais nenhum salário foi cadastrado ainda. A parcela 0 (mês corrente) **nunca** fica órfã — resolve `periodId` pelo range vigente, igual crédito comum (ver seção 8). O vínculo das parcelas futuras é feito automaticamente pelo `LinkOrphanInstallmentsService` quando o salário correspondente àquele mês específico for cadastrado.
 
 ### Remoção do Salário Mais Recente (Correção de Erro de Cadastro)
 
@@ -359,22 +361,24 @@ Diferente da regra geral de imutabilidade, o **salário mais recente** cadastrad
 **Validações antes de permitir a remoção:**
 
 1. O salário deve ser o mais recente do usuário (`endedAt IS NULL` no `SalaryPeriod` correspondente).
-2. Buscar transações **ativas** (`deletedAt IS NULL`) de `DEBIT`, `PIX` **ou `CREDIT`** vinculadas a esse `periodId`. Se existir **qualquer uma**, **bloquear a remoção** com erro claro orientando o usuário a remover (soft delete) essas transações antes. Transações **soft-deletadas não contam para esta validação** — elas não impactam saldo (seção 11) e por isso não devem impedir a correção do salário.
-3. Parcelas de `InstallmentExpense` (ativas ou soft-deletadas) vinculadas a esse `periodId` **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo).
+2. Buscar transações **ativas** (`deletedAt IS NULL`) de `DEBIT`, `PIX`, `CREDIT` **ou a parcela 0 (mês corrente) de `InstallmentExpense`** vinculadas a esse `periodId`. Se existir **qualquer uma**, **bloquear a remoção** com erro claro orientando o usuário a remover (soft delete) essas transações antes. Transações **soft-deletadas não contam para esta validação** — elas não impactam saldo (seção 11) e por isso não devem impedir a correção do salário.
+3. **Parcelas futuras** (índice ≥ 1) de `InstallmentExpense` vinculadas a esse `periodId`, ativas ou soft-deletadas, **não bloqueiam** a remoção — elas serão desvinculadas automaticamente (ver fluxo abaixo), já que representam compromissos projetados para o futuro, não eventos já realizados no período.
+
+**Identificação da "parcela 0":** é a `Transaction` cujo `installmentExpenseId` aponta para um `InstallmentExpense` e cujo `transactionDate` cai no mesmo mês do `startMonth` daquele `InstallmentExpense` (`date_trunc('month', transaction.transaction_date) = date_trunc('month', installment_expense.start_month)`). Todas as demais parcelas do mesmo `installmentExpenseId` são "futuras" para efeito desta seção.
 
 **Fluxo de remoção — `DeleteSalaryService`:**
 
 ```
 1. Validar que o salário é o mais recente (endedAt do período = NULL)
-2. Buscar transações ATIVAS (deletedAt IS NULL) de DEBIT, PIX ou CREDIT
-   (exceto parcelas de InstallmentExpense) vinculadas ao periodId
+2. Buscar transações ATIVAS (deletedAt IS NULL) de DEBIT, PIX, CREDIT
+   ou parcela 0 de InstallmentExpense, vinculadas ao periodId
    → Se existir alguma, lançar erro e abortar (nenhuma alteração é feita)
 3. Chamar `UnlinkOrphanInstallmentsService(periodId)` — desvincula TODAS as
    transações vinculadas a esse período que não podem permanecer referenciando
    um SalaryPeriod que será hard-deletado:
-     a) parcelas de InstallmentExpense (ativas ou soft-deletadas)
-     b) transações comuns (DEBIT, PIX, CREDIT) já soft-deletadas
-   (transações comuns ATIVAS já foram garantidas ausentes pelo passo 2)
+     a) parcelas FUTURAS de InstallmentExpense (ativas ou soft-deletadas)
+     b) transações comuns (DEBIT, PIX, CREDIT) e a parcela 0, já soft-deletadas
+   (transações comuns e parcela 0 ATIVAS já foram garantidas ausentes pelo passo 2)
 4. Deletar o SalaryPeriod (hard delete)
 5. Deletar o Salary (hard delete)
 6. Reabrir o período anterior: setar endedAt = NULL nele
@@ -382,19 +386,26 @@ Diferente da regra geral de imutabilidade, o **salário mais recente** cadastrad
 
 > **Por que o passo 3 também cobre soft-deletadas:** a constraint `onDelete: Restrict` entre `Transaction.periodId` e `SalaryPeriod.id` não distingue soft delete — qualquer linha de `Transaction`, ativa ou não, que ainda referencie o `periodId` impede o hard delete do `SalaryPeriod` no banco. Por isso, mesmo uma transação soft-deletada (que não bloqueia a remoção pela regra de negócio do passo 2) precisa ser desvinculada antes do hard delete, ou a operação falha por violação de FK.
 
-**`UnlinkOrphanInstallmentsService`** — service dedicado, espelha exatamente o comportamento inverso do `LinkOrphanInstallmentsService` (seção 6). Responsabilidade única:
+**`UnlinkOrphanInstallmentsService`** — service dedicado, espelha o comportamento inverso do `LinkOrphanInstallmentsService` (seção 6), com o ajuste de excluir a parcela 0 do escopo de órfã (ela se comporta como `CREDIT` comum). Responsabilidade única:
 
 ```sql
-UPDATE transactions
+UPDATE transactions t
 SET period_id = NULL
-WHERE period_id = :periodId
+WHERE t.period_id = :periodId
   AND (
-    installment_expense_id IS NOT NULL
-    OR deleted_at IS NOT NULL
+    (
+      t.installment_expense_id IS NOT NULL
+      AND date_trunc('month', t.transaction_date) <> (
+        SELECT date_trunc('month', ie.start_month)
+        FROM installment_expenses ie
+        WHERE ie.id = t.installment_expense_id
+      )
+    )
+    OR t.deleted_at IS NOT NULL
   )
 ```
 
-> **Decisão (revisada):** antes, transações de crédito comuns eram desvinculadas automaticamente para nunca bloquear a remoção do salário, já que seu vínculo de período vinha do mês da fatura. Agora que o `periodId` de uma `Transaction` comum **ativa** reflete a data real em que o gasto foi feito (ver seção 7), desvincular essa transação ao deletar o salário deixaria de fazer sentido — apagaria o registro de quando o dinheiro foi efetivamente gasto. Por isso, `CREDIT` **ativo** passa a se comportar como `DEBIT`/`PIX` **ativo** aqui: **bloqueia a remoção**. As duas exceções que continuam sendo desvinculadas automaticamente são: (1) parcelas de `InstallmentExpense`, porque seu vínculo é estrutural ao calendário de pagamento da parcela e não a um gasto pontual já realizado; e (2) qualquer transação já soft-deletada, de qualquer tipo, porque ela não representa mais um evento real para o saldo e existe apenas como linha técnica que precisa ser desvinculada para não violar a constraint de FK no hard delete do período.
+> **Decisão (revisada — modelo híbrido):** a parcela 0 de `InstallmentExpense` passa a se comportar exatamente como `CREDIT` comum nesta seção — se **ativa**, bloqueia a remoção do salário (ver validação 2); se **soft-deletada**, é desvinculada automaticamente junto com as demais transações soft-deletadas. Já as **parcelas futuras** (índice ≥ 1) continuam sendo desvinculadas automaticamente independente de estarem ativas ou soft-deletadas, porque seu vínculo é estrutural ao calendário de pagamento futuro da parcela — ainda não representam um gasto já realizado no período que está sendo removido, e serão religadas (ou não) pelo `LinkOrphanInstallmentsService` normalmente quando o próximo salário for cadastrado.
 
 **Endpoint:**
 
@@ -533,40 +544,79 @@ PIX em 07/05:
 
 Ao criar um `InstallmentExpense`, o `InstallmentExpenseService` deve **automaticamente gerar todas as parcelas** como `Transaction` individuais via `CreateTransactionService` (injeção entre módulos), calculando `billingDate` e `periodId` para cada uma.
 
-`startMonth` **não é mais um campo enviado pelo cliente**. O cálculo de cada parcela passa a usar como base a **data real de cadastro** (`registrationDate = now()`), preservando o dia real (não mais forçado ao dia 01). Isso é necessário porque o `billingDate` de cada parcela depende do `closingDay` do cartão em relação ao dia real da compra — forçar o dia 01 podia jogar a parcela na fatura errada (ex: cadastro dia 07 com fechamento dia 06 deveria cair na fatura do mês seguinte, mas com `baseDate` no dia 01 caía incorretamente na fatura do mês corrente).
+`startMonth` **não é mais um campo enviado pelo cliente**. O cálculo de cada parcela passa a usar como base a **data real de cadastro** (`registrationDate = now()`), preservando o dia real (não mais forçado ao dia 01). Isso é necessário porque o `billingDate` de cada parcela depende do `closingDay` do cartão em relação ao dia real da compra — forçar o dia 01 podia jogar a parcela na fatura errada.
+
+**Campo `paymentMethod` (substitui a inferência antiga por presença de `cardId`):** o cliente **sempre envia** `paymentMethod: 'CREDIT_CARD' | 'BOLETO'` explicitamente no `CreateInstallmentExpenseDto` — igual `Transaction` comum já faz com `type` (seção 7). Isso existe porque um parcelamento sem `cardId` é ambíguo por si só: pode ser "esqueci de informar o cartão" (deveria cair no cartão padrão) ou "isso é um boleto, não passa em cartão nenhum" — duas intenções completamente diferentes que a ausência de `cardId` sozinha não distingue.
+
+- **`paymentMethod = 'CREDIT_CARD'`:** gera `Transaction` do tipo `CREDIT`. Se `cardId` não for informado, resolve o **cartão padrão** do usuário (`Card.isDefault = true`), igual a regra já existente para `Transaction` comum (seção 7). Se não houver `cardId` informado nem cartão padrão cadastrado, retornar erro claro solicitando cadastro ou definição de um cartão padrão — **nenhuma parcela é criada**.
+- **`paymentMethod = 'BOLETO'`:** gera `Transaction` do tipo `DEBIT`. `cardId` deve ser **nulo** — se for informado junto com `BOLETO`, rejeitar com erro (`400 Bad Request`, "gasto parcelado em boleto não pode ter cartão").
+- O campo `paymentMethod` é persistido na entidade `InstallmentExpense` (não existe em `Transaction`) — serve para a listagem do frontend distinguir visualmente "parcelado no cartão X" de "parcelado no boleto", já que ambos podem gerar `Transaction` do tipo `DEBIT` (boleto) ou `CREDIT` (cartão), mas o boleto nunca deve ser confundido com um débito recorrente comum.
+
+**Modelo híbrido de resolução de `periodId` (revisão final):** uma tentativa anterior de unificar 100% com a regra de crédito comum (seção 7) causou um bug diferente: como o período mais recente fica aberto (`endedAt = NULL`) e "cobre indefinidamente o presente e o futuro", **todas** as parcelas futuras (índice 1, 2, 3...) acabavam caindo no mesmo período da parcela 0, debitando o mês inteiro do parcelamento de uma vez só — o que não faz sentido, já que cada parcela é um compromisso de um mês específico no futuro, que só deveria debitar o salário daquele mês quando ele existir. A resolução correta depende de **qual parcela é**:
+
+- **Parcela `index = 0` (a de agora):** representa um gasto real acontecendo hoje. Resolve `periodId` exatamente como uma compra de crédito comum (seção 7) — pelo intervalo `[startedAt, endedAt)` do `SalaryPeriod`, usando `baseDate` como âncora. Sempre encontra o período aberto vigente (o salário já recebido) e nunca fica órfã.
+- **Parcelas `index >= 1` (futuras):** representam compromissos que só devem debitar o salário do **mês específico** em que caem. Resolvem `periodId` batendo o mês exato de `baseDate` contra o `referenceMonth` de um `SalaryPeriod` (`SalaryPeriod.referenceMonth = firstDayOfUtcMonth(baseDate)`). Se esse `SalaryPeriod` ainda não existir, a parcela nasce com `periodId = NULL` — órfã, religada depois pelo `LinkOrphanInstallmentsService` (volta a existir, ver seção 6) quando o salário daquele mês específico for cadastrado.
+
+> **Por que não usar `billingDate` no match do órfão:** o critério de vínculo das parcelas futuras usa o mês de `baseDate` (a data real da parcela), não o mês de `billingDate` (fatura). Usar `billingDate` era a causa do bug original relatado no início desta thread de correções — uma parcela cadastrada em 05/07 com cartão fechando dia 06 tem `billingDate` em julho, mas `baseDate` também em julho (mesma coisa aqui, pois a parcela 0 nunca teve esse problema por já usar range); o problema surgia nas parcelas seguintes, cujo `billingDate` do cartão podia empurrar o mês de fatura para além do mês real do compromisso. Ancorar no `baseDate` mantém o vínculo fiel ao mês em que o compromisso realmente existe, independente de quando a fatura fecha.
 
 **Algoritmo de geração de parcelas:**
 
 ```
 registrationDate = now() // data real de cadastro do InstallmentExpense
 
+Resolver paymentMethod e cardId antes do loop:
+  Se paymentMethod == 'CREDIT_CARD':
+    card = cardId informado, ou cartão padrão do usuário (isDefault = true)
+    Se nenhum card resolvido: retornar erro, abortar (nenhuma parcela criada)
+    type = CREDIT
+  Se paymentMethod == 'BOLETO':
+    Se cardId foi informado: retornar erro ("boleto não pode ter cartão")
+    card = null
+    type = DEBIT
+
 Para i de 0 até totalInstallments - 1:
   baseDate = registrationDate + i meses (preserva o dia de registrationDate)
 
-  Se tem cardId:
-    Aplicar regra de billingDate do cartão sobre baseDate
-  Senão:
+  Se card (paymentMethod == CREDIT_CARD):
+    Aplicar regra de billingDate do cartão sobre baseDate (seção 7)
+  Senão (paymentMethod == BOLETO):
     billingDate = baseDate
 
-  Calcular periodId a partir do billingDate (regra de crédito)
-  Se SalaryPeriod não existir para o mês: periodId = NULL
+  Se i == 0:
+    // parcela do mês corrente: mesma regra de crédito comum (seção 7)
+    periodId = SalaryPeriod onde started_at <= baseDate
+                 AND (ended_at >= baseDate OR ended_at IS NULL)
+               ORDER BY started_at DESC LIMIT 1
+    Se nenhum SalaryPeriod for encontrado: retornar erro e abortar toda a
+    criação (mesma regra da seção 7 — só ocorre se nunca houve salário cadastrado)
+  Senão:
+    // parcela futura: vínculo pelo mês exato do baseDate, pode ficar órfã
+    periodId = SalaryPeriod onde referenceMonth = firstDayOfUtcMonth(baseDate)
+    Se nenhum SalaryPeriod for encontrado: periodId = NULL
 
   Criar Transaction com:
     installmentExpenseId = installmentExpense.id
+    cardId         = card?.id ?? null
+    type           = type (CREDIT ou DEBIT, resolvido acima)
     billingDate    = calculado
-    periodId       = calculado (ou NULL)
+    periodId       = resolvido (ou NULL, se i >= 1 e sem período)
     amount         = installmentAmount
     description    = "{description} — Parcela {i+1}/{totalInstallments}"
 ```
 
 `startMonth` continua existindo na entidade `InstallmentExpense` (e no response), mas passa a ser derivado internamente como o primeiro dia do mês de `registrationDate` — serve apenas como referência/label do parcelamento, sem influenciar o cálculo das parcelas.
 
-> **Decisão (ponto 3, mantida):** parcelas sem `SalaryPeriod` são criadas com `periodId = NULL`. O `LinkOrphanInstallmentsService` (seção 6) vincula automaticamente quando o salário for cadastrado. Rejeitar a criação tornaria o recurso inutilizável na prática, pois quase sempre haverá parcelas em meses sem salário cadastrado. **No momento desta seção, esta é a única situação no sistema em que uma `Transaction` pode nascer com `periodId = NULL`** — parcelas de `InstallmentExpense` continuam vinculadas pelo mês da própria parcela (`billingDate`), não pela data de criação do gasto parcelado, pois representam um compromisso que se espalha mês a mês até o fim das parcelas. (`FixedExpense`, seção 8.1, nunca gera órfão, pois sua geração é sempre disparada por um `SalaryPeriod` já existente.) **Esta decisão não muda com a correção acima** — o que muda é apenas a base de cálculo do `baseDate`/`billingDate` de cada parcela (data real de cadastro, dia preservado), não o mecanismo de vínculo/órfã.
+> **Decisão (histórico das revisões desta seção):** (1) versão original — todas as parcelas vinculadas por `referenceMonth` do `billingDate`, causando órfã inclusive na parcela 0; (2) primeira correção — todas as parcelas usando range igual crédito comum, o que eliminou a órfã da parcela 0 mas fez todas as parcelas futuras caírem incorretamente no mesmo período aberto; (3) **modelo híbrido final, adotado nesta revisão** — parcela 0 usa range (nunca órfã), parcelas futuras usam `referenceMonth` do `baseDate` (podem ficar órfãs até o salário daquele mês ser cadastrado). Isso garante que a parcela do mês corrente sempre debita o saldo na hora, e cada parcela futura só debita o salário do mês em que ela de fato representa um compromisso.
+
+> **Decisão (`paymentMethod`, adicionado nesta revisão):** antes, o `type` da parcela era inferido pela simples presença de `cardId` (`type = card ? CREDIT : DEBIT`), o que causava um bug de classificação: um parcelamento sem `cardId` informado por engano (ex: usuário esqueceu de selecionar o cartão no formulário) virava silenciosamente `DEBIT`, quando a intenção era `CREDIT` com o cartão padrão. Isso é inconsistente com a regra já usada por `Transaction` comum (seção 7), onde `type` é sempre explícito e a resolução de cartão padrão só ocorre quando o cliente **de fato pediu `CREDIT`**. A partir desta revisão, `paymentMethod` é obrigatório e explícito, eliminando a ambiguidade.
 
 ### Validações
 
 - `installmentAmount * totalInstallments` deve ser igual a `totalAmount`. Rejeitar se divergir (ou calcular automaticamente um dos dois — definir na implementação).
 - `categoryId` deve ser subcategoria do `userId`.
+- `paymentMethod` deve ser `CREDIT_CARD` ou `BOLETO`.
+- Se `paymentMethod = CREDIT_CARD`: usar o `cardId` informado; se ausente, usar o cartão padrão do usuário (`isDefault = true`). Se não houver `cardId` nem cartão padrão, retornar erro claro solicitando cadastro ou definição de um cartão padrão — nenhuma parcela é criada.
+- Se `paymentMethod = BOLETO`: `cardId` deve ser **nulo**. Se for informado, retornar erro (`400 Bad Request`).
 
 ### Soft Delete em Cascata
 
@@ -603,7 +653,7 @@ A geração é dividida em dois services com responsabilidades distintas, seguin
 
 **`GenerateFixedExpenseTransactionsService`** — orquestrador, chamado pelo `CreateSalaryService` (passo 6, seção 6) após a criação do novo `SalaryPeriod`. Busca todos os `FixedExpense` ativos do usuário (`deletedAt IS NULL`, e `endMonth IS NULL OR endMonth >= referenceMonth` do novo período) e chama `GenerateSingleFixedExpenseTransactionService` para cada um.
 
-> **Sem cenário de órfão:** diferente do `InstallmentExpense`, o `FixedExpense` nunca gera `Transaction` com `periodId = NULL`. A geração só é disparada quando o `SalaryPeriod` já existe (seja pelo fluxo lazy do `CreateSalaryService`, seja pela criação do próprio `FixedExpense` com `startInCurrentPeriod = true` — ver abaixo), então o vínculo já nasce resolvido.
+> **Sem cenário de órfão:** `FixedExpense` nunca gera `Transaction` com `periodId = NULL` — a geração só é disparada quando o `SalaryPeriod` já existe (seja pelo fluxo lazy do `CreateSalaryService`, seja pela criação do próprio `FixedExpense` com `startInCurrentPeriod = true` — ver abaixo), então o vínculo já nasce resolvido. `InstallmentExpense` (seção 8) segue um modelo híbrido: a parcela 0 também nunca fica órfã, mas parcelas futuras (índice ≥ 1) podem ficar, religadas pelo `LinkOrphanInstallmentsService` (seção 6).
 
 ### Criação — `CreateFixedExpenseService`
 
@@ -752,16 +802,16 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - Deve criar salário e gerar SalaryPeriod automaticamente.
 - Deve atualizar `endedAt` do período anterior ao inserir novo salário.
-- Deve chamar `LinkOrphanInstallmentsService` após criar o novo período.
-- Deve chamar `GenerateFixedExpenseTransactionsService` após o `LinkOrphanInstallmentsService`.
-- Deve reverter todas as alterações (Salary, SalaryPeriod, parcelas religadas, transações de gastos fixos) se qualquer passo do fluxo falhar (atomicidade via `prisma.$transaction`).
+- Deve chamar `GenerateFixedExpenseTransactionsService` após criar o novo período.
+- Deve reverter todas as alterações (Salary, SalaryPeriod, transações de gastos fixos) se qualquer passo do fluxo falhar (atomicidade via `prisma.$transaction`).
 - Deve rejeitar dois salários no mesmo dia para o mesmo usuário.
 - Deve retornar salário vigente via fallback (último `paidAt <= dataConsultada`).
 - Deve retornar erro se nenhum salário cadastrado.
 
 **`LinkOrphanInstallmentsService`**
 
-- Deve vincular parcelas de `InstallmentExpense` com `periodId = NULL` ao período correto pelo `referenceMonth`.
+- Deve vincular **parcelas futuras** (índice ≥ 1) de `InstallmentExpense` com `periodId = NULL` ao período correto, batendo o mês de `transactionDate` (não `billingDate`) com o `referenceMonth` do novo período.
+- Não deve afetar a **parcela 0** (mês corrente) — ela nunca fica órfã, então nunca é alvo deste service.
 - Não deve afetar `Transaction` de crédito comum (sem `installmentExpenseId`).
 - Não deve afetar transações de `DEBIT` ou `PIX`.
 - Não deve afetar transações com `periodId` já preenchido.
@@ -770,19 +820,20 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - Deve permitir remover apenas o salário mais recente (`endedAt IS NULL` no período).
 - Deve rejeitar remoção se existir salário mais recente que o informado.
-- Deve bloquear remoção se existir transação **ativa** (`deletedAt IS NULL`) de `DEBIT`, `PIX` ou `CREDIT` (não-parcela) vinculada ao período.
-- Não deve bloquear remoção se a única transação `DEBIT`, `PIX` ou `CREDIT` vinculada estiver soft-deletada (`deletedAt` preenchido).
-- Deve desvincular (periodId = NULL) parcelas de `InstallmentExpense` (ativas ou soft-deletadas) vinculadas ao período antes de deletar.
-- Deve desvincular (periodId = NULL) transações comuns soft-deletadas (`DEBIT`, `PIX`, `CREDIT`) vinculadas ao período antes de deletar, para não violar a constraint de FK no hard delete do `SalaryPeriod`.
-- Deve deletar o `SalaryPeriod` e o `Salary` (hard delete) com sucesso mesmo havendo transações soft-deletadas previamente vinculadas.
+- Deve bloquear remoção se existir transação **ativa** (`deletedAt IS NULL`) de `DEBIT`, `PIX`, `CREDIT` **ou a parcela 0 de `InstallmentExpense`** vinculada ao período.
+- Não deve bloquear remoção se a única transação ativa vinculada for uma **parcela futura** (índice ≥ 1) de `InstallmentExpense`.
+- Não deve bloquear remoção se a única transação vinculada (de qualquer tipo) estiver soft-deletada (`deletedAt` preenchido).
+- Deve desvincular (`periodId = NULL`) parcelas **futuras** de `InstallmentExpense` (ativas ou soft-deletadas) vinculadas ao período antes de deletar.
+- Deve desvincular (`periodId = NULL`) transações comuns e a parcela 0, quando **soft-deletadas**, vinculadas ao período antes de deletar, para não violar a constraint de FK no hard delete do `SalaryPeriod`.
+- Deve deletar o `SalaryPeriod` e o `Salary` (hard delete) com sucesso mesmo havendo transações soft-deletadas ou parcelas futuras previamente vinculadas.
 - Deve reabrir o período anterior (`endedAt = NULL`) após a remoção.
 - Não deve permitir deletar salário de outro usuário.
 
 **`UnlinkOrphanInstallmentsService`**
 
-- Deve voltar `periodId` para `NULL` em todas as parcelas de `InstallmentExpense` (ativas ou soft-deletadas) vinculadas ao período informado.
-- Deve voltar `periodId` para `NULL` em transações comuns (`DEBIT`, `PIX`, `CREDIT`) **soft-deletadas** vinculadas ao período informado.
-- Não deve afetar transações comuns **ativas** de nenhum tipo (`DEBIT`, `PIX`, `CREDIT`) — essas já são garantidas ausentes pela validação de bloqueio antes deste service ser chamado.
+- Deve voltar `periodId` para `NULL` em parcelas **futuras** de `InstallmentExpense` (ativas ou soft-deletadas) vinculadas ao período informado.
+- Deve voltar `periodId` para `NULL` em transações comuns (`DEBIT`, `PIX`, `CREDIT`) e na **parcela 0**, quando **soft-deletadas**, vinculadas ao período informado.
+- Não deve afetar a parcela 0 nem transações comuns **ativas** — essas já são garantidas ausentes pela validação de bloqueio antes deste service ser chamado.
 - Não deve afetar transações de outros períodos.
 
 **`TransactionService` — regra de `billingDate`**
@@ -806,10 +857,17 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - Deve gerar exatamente `totalInstallments` transações ao criar.
 - `baseDate` de cada parcela deve preservar o dia real de `registrationDate` (não forçar dia 01), avançando apenas o mês a cada parcela.
-- Cada parcela deve ter `billingDate` e `periodId` corretos, vinculados pelo mês da própria parcela.
+- Cada parcela deve ter `billingDate` calculado pela regra de crédito normal (seção 7) sobre seu próprio `baseDate`.
 - Cadastro após o fechamento do cartão (ex: fechamento dia 06, cadastro dia 07) deve gerar `billingDate` no mês seguinte, refletindo a regra de crédito normal.
-- Parcelas sem `SalaryPeriod` devem ser criadas com `periodId = NULL` (nunca rejeitar).
+- **Parcela 0** (índice 0): `periodId` resolvido pelo intervalo `[startedAt, endedAt)` do `SalaryPeriod` (mesma regra de crédito comum, seção 7), usando `baseDate` como âncora. Nunca nasce com `periodId = NULL` — se não existir `SalaryPeriod` vigente algum (nenhum salário cadastrado ainda), a criação inteira falha com erro.
+- **Parcelas futuras** (índice ≥ 1): `periodId` resolvido batendo o mês de `baseDate` contra o `referenceMonth` de um `SalaryPeriod`. Se não existir, nasce com `periodId = NULL` (não bloqueia a criação das demais parcelas).
+- Cada parcela futura deve cair no `SalaryPeriod` do seu próprio mês, nunca no mesmo período da parcela 0 (regressão do bug: todas as parcelas caindo no período do mês de cadastro).
 - Soft delete deve apagar parcelas futuras e preservar passadas.
+- `paymentMethod = 'CREDIT_CARD'` com `cardId` informado: todas as parcelas geradas com `type = CREDIT` e `cardId` informado.
+- `paymentMethod = 'CREDIT_CARD'` sem `cardId`: resolve o cartão padrão do usuário; todas as parcelas com `type = CREDIT` e `cardId` do cartão padrão.
+- `paymentMethod = 'CREDIT_CARD'` sem `cardId` e sem cartão padrão cadastrado: retorna erro, nenhuma parcela é criada.
+- `paymentMethod = 'BOLETO'`: todas as parcelas geradas com `type = DEBIT` e `cardId = null`, independente de qualquer cartão padrão existir.
+- `paymentMethod = 'BOLETO'` com `cardId` informado no request: retorna erro (`400`), nenhuma parcela é criada.
 
 **`FixedExpenseService` (gasto fixo recorrente)**
 
@@ -945,7 +1003,7 @@ src/
 └── app.module.ts
 ```
 
-> **Módulo `fixed-expenses`:** segue a mesma estrutura, com `services/create-fixed-expense.service.ts`, `services/generate-single-fixed-expense-transaction.service.ts`, `services/generate-fixed-expense-transactions.service.ts` (este último injetado no módulo `salaries`, mesmo padrão de injeção entre módulos do `LinkOrphanInstallmentsService`) e `services/delete-fixed-expense.service.ts`. O service que marca uma `Transaction` como paga (`PATCH /transactions/:id/pay`) vive no módulo `transactions`, não em `fixed-expenses` — a ação opera sobre o recurso `Transaction`, então pertence ao seu próprio módulo.
+> **Módulo `fixed-expenses`:** segue a mesma estrutura, com `services/create-fixed-expense.service.ts`, `services/generate-single-fixed-expense-transaction.service.ts`, `services/generate-fixed-expense-transactions.service.ts` (este último injetado no módulo `salaries`, mesmo padrão de injeção entre módulos do `CreateTransactionService` no `InstallmentExpenseService`) e `services/delete-fixed-expense.service.ts`. O service que marca uma `Transaction` como paga (`PATCH /transactions/:id/pay`) vive no módulo `transactions`, não em `fixed-expenses` — a ação opera sobre o recurso `Transaction`, então pertence ao seu próprio módulo.
 
 ---
 
