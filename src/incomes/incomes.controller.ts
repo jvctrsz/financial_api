@@ -9,8 +9,13 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { JwtGuard } from '../auth/guards/jwt.guard';
+import {
+  READ_RATE_LIMIT,
+  WRITE_RATE_LIMIT,
+} from '../shared/constants/rate-limit.constants';
 import { CreateIncomeDto } from './dto/create-income.dto';
 import { CreateIncomeService } from './services/create-income.service';
 import { DeleteIncomeService } from './services/delete-income.service';
@@ -33,11 +38,13 @@ export class IncomesController {
   ) {}
 
   @Post()
+  @Throttle(WRITE_RATE_LIMIT)
   create(@Req() request: AuthenticatedRequest, @Body() dto: CreateIncomeDto) {
     return this.createIncomeService.createIncome(request.user.id, dto);
   }
 
   @Get()
+  @Throttle(READ_RATE_LIMIT)
   findByMonth(
     @Req() request: AuthenticatedRequest,
     @Query('month') month?: string,
@@ -49,6 +56,7 @@ export class IncomesController {
   }
 
   @Delete(':id')
+  @Throttle(WRITE_RATE_LIMIT)
   delete(@Req() request: AuthenticatedRequest, @Param('id') incomeId: string) {
     return this.deleteIncomeService.deleteIncome(request.user.id, incomeId);
   }

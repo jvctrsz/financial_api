@@ -8,8 +8,13 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { JwtGuard } from '../auth/guards/jwt.guard';
+import {
+  READ_RATE_LIMIT,
+  WRITE_RATE_LIMIT,
+} from '../shared/constants/rate-limit.constants';
 import { CreateFixedExpenseDto } from './dto/create-fixed-expense.dto';
 import { CreateFixedExpenseService } from './services/create-fixed-expense.service';
 import { DeleteFixedExpenseService } from './services/delete-fixed-expense.service';
@@ -32,6 +37,7 @@ export class FixedExpensesController {
   ) {}
 
   @Post()
+  @Throttle(WRITE_RATE_LIMIT)
   create(
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreateFixedExpenseDto,
@@ -43,6 +49,7 @@ export class FixedExpensesController {
   }
 
   @Get()
+  @Throttle(READ_RATE_LIMIT)
   findAll(@Req() request: AuthenticatedRequest) {
     return this.findAllFixedExpensesService.findAllFixedExpenses(
       request.user.id,
@@ -50,6 +57,7 @@ export class FixedExpensesController {
   }
 
   @Delete(':id')
+  @Throttle(WRITE_RATE_LIMIT)
   delete(
     @Req() request: AuthenticatedRequest,
     @Param('id') fixedExpenseId: string,

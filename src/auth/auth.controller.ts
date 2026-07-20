@@ -1,5 +1,7 @@
 import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
+import { AUTH_RATE_LIMIT } from '../shared/constants/rate-limit.constants';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginAuthService } from './services/login-auth.service';
@@ -29,6 +31,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle(AUTH_RATE_LIMIT)
   async login(
     @Body() dto: LoginDto,
     @Res({ passthrough: true }) response: Response,
@@ -42,6 +45,7 @@ export class AuthController {
   }
 
   @Post('refresh')
+  @Throttle(AUTH_RATE_LIMIT)
   async refresh(
     @Req() request: RefreshRequest,
     @Res({ passthrough: true }) response: Response,

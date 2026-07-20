@@ -22,6 +22,6 @@ const authServices = [
   imports: [PrismaModule, PassportModule, JwtModule.register({})],
   controllers: [AuthController],
   providers: [...authServices, JwtStrategy],
-  exports: authServices,
+  exports: [...authServices, JwtModule],
 })
 export class AuthModule {}

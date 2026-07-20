@@ -1,6 +1,8 @@
 import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { JwtGuard } from '../auth/guards/jwt.guard';
+import { READ_RATE_LIMIT } from '../shared/constants/rate-limit.constants';
 import { FindBillingReportService } from './services/find-billing-report.service';
 import { FindCurrentBalanceReportService } from './services/find-current-balance-report.service';
 import { FindPeriodReportService } from './services/find-period-report.service';
@@ -13,6 +15,7 @@ type AuthenticatedRequest = Request & {
 };
 
 @UseGuards(JwtGuard)
+@Throttle(READ_RATE_LIMIT)
 @Controller('reports')
 export class ReportsController {
   constructor(

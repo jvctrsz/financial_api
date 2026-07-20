@@ -9,8 +9,13 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { JwtGuard } from '../auth/guards/jwt.guard';
+import {
+  READ_RATE_LIMIT,
+  WRITE_RATE_LIMIT,
+} from '../shared/constants/rate-limit.constants';
 import { CreateAsideExpenseDto } from './dto/create-aside-expense.dto';
 import { FinishAsideExpenseDto } from './dto/finish-aside-expense.dto';
 import { CreateAsideExpenseService } from './services/create-aside-expense.service';
@@ -36,6 +41,7 @@ export class AsideExpensesController {
   ) {}
 
   @Post()
+  @Throttle(WRITE_RATE_LIMIT)
   create(
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreateAsideExpenseDto,
@@ -47,6 +53,7 @@ export class AsideExpensesController {
   }
 
   @Get()
+  @Throttle(READ_RATE_LIMIT)
   findAll(@Req() request: AuthenticatedRequest) {
     return this.findAllAsideExpensesService.findAllAsideExpenses(
       request.user.id,
@@ -54,6 +61,7 @@ export class AsideExpensesController {
   }
 
   @Delete(':id')
+  @Throttle(WRITE_RATE_LIMIT)
   delete(
     @Req() request: AuthenticatedRequest,
     @Param('id') asideExpenseId: string,
@@ -65,6 +73,7 @@ export class AsideExpensesController {
   }
 
   @Patch(':id/finish')
+  @Throttle(WRITE_RATE_LIMIT)
   finish(
     @Req() request: AuthenticatedRequest,
     @Param('id') asideExpenseId: string,
