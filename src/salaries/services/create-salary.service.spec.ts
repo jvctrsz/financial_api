@@ -85,6 +85,7 @@ describe('CreateSalaryService', () => {
         userId: 'user-1',
         periodId: 'period-1',
         referenceMonth: new Date('2025-05-01T00:00:00.000Z'),
+        paidAt: salary.paidAt,
       },
       prisma,
     );
@@ -173,6 +174,7 @@ describe('CreateSalaryService', () => {
         userId: 'user-1',
         periodId: 'period-june',
         referenceMonth: new Date('2025-06-01T00:00:00.000Z'),
+        paidAt: salary.paidAt,
       },
       prisma,
     );

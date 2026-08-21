@@ -31,6 +31,7 @@ describe('CreateFixedExpenseService', () => {
   const period = {
     id: 'period-1',
     userId: 'user-1',
+    startedAt: new Date('2025-06-07T00:00:00.000Z'),
     referenceMonth: new Date('2025-06-01T00:00:00.000Z'),
   };
 
@@ -80,6 +81,7 @@ describe('CreateFixedExpenseService', () => {
         userId: 'user-1',
         periodId: 'period-1',
         referenceMonth: period.referenceMonth,
+        paidAt: period.startedAt,
         fixedExpense,
       },
       prisma,

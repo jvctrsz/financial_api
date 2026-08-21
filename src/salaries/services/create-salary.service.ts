@@ -84,6 +84,7 @@ export class CreateSalaryService {
             userId,
             periodId: period.id,
             referenceMonth: period.referenceMonth,
+            paidAt: salary.paidAt,
           },
           tx,
         );
