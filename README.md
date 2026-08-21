@@ -31,6 +31,51 @@
 $ npm install
 ```
 
+## Docker
+
+O projeto possui um `dockerfile` para a API e um `docker-compose.yml` que sobe a API junto com um banco PostgreSQL.
+
+Antes de iniciar os containers, crie o arquivo `.env` na raiz do projeto. Voce pode usar o `.env.example` como base:
+
+```bash
+$ cp .env.example .env
+```
+
+Para executar com Docker Compose, ajuste a `DATABASE_URL` do `.env` para apontar para o servico `postgres` do Compose:
+
+```env
+DATABASE_URL=postgresql://financial:financial@postgres:5432/financial_api?schema=public
+```
+
+Depois suba os containers:
+
+```bash
+$ docker compose up --build
+```
+
+A API ficara disponivel em:
+
+```text
+http://localhost:5000
+```
+
+Servicos criados pelo Compose:
+
+- `api`: aplica o `dockerfile`, executa a aplicacao NestJS em modo production e expoe a porta `5000` no host.
+- `postgres`: executa PostgreSQL 16 e persiste os dados no volume `financial_postgres_data`.
+
+Para executar as migrations do Prisma no banco do container:
+
+```bash
+$ docker compose exec api npx prisma migrate deploy
+```
+
+Para parar os containers:
+
+```bash
+$ docker compose down
+```
+
 ## Compile and run the project
 
 ```bash
