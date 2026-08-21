@@ -12,6 +12,7 @@ services:
 
   api:
     build: .
+    restart: unless-stopped
     ports:
       - "5000:3000"
     environment:
