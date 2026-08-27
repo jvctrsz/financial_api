@@ -9,6 +9,7 @@ type GenerateFixedExpenseTransactionsParams = {
   userId: string;
   periodId: string;
   referenceMonth: Date;
+  paidAt: Date;
 };
 
 @Injectable()
@@ -22,7 +23,7 @@ export class GenerateFixedExpenseTransactionsService {
     params: GenerateFixedExpenseTransactionsParams,
     prismaClient: PrismaTransactionClient = this.prisma,
   ) => {
-    const { userId, periodId, referenceMonth } = params;
+    const { userId, periodId, referenceMonth, paidAt } = params;
     const fixedExpenses = await prismaClient.fixedExpense.findMany({
       where: {
         userId,
@@ -50,6 +51,7 @@ export class GenerateFixedExpenseTransactionsService {
             userId,
             periodId,
             referenceMonth,
+            paidAt,
             fixedExpense,
           },
           prismaClient,

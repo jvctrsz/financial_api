@@ -12,6 +12,7 @@ describe('GenerateFixedExpenseTransactionsService', () => {
   let service: GenerateFixedExpenseTransactionsService;
 
   const referenceMonth = new Date('2025-06-01T00:00:00.000Z');
+  const paidAt = new Date('2025-06-07T00:00:00.000Z');
 
   beforeEach(() => {
     prisma = makePrisma();
@@ -46,6 +47,7 @@ describe('GenerateFixedExpenseTransactionsService', () => {
       userId: 'user-1',
       periodId: 'period-1',
       referenceMonth,
+      paidAt,
     });
 
     expect(prisma.fixedExpense.findMany).toHaveBeenCalledWith({
@@ -76,6 +78,7 @@ describe('GenerateFixedExpenseTransactionsService', () => {
         userId: 'user-1',
         periodId: 'period-1',
         referenceMonth,
+        paidAt,
         fixedExpense: fixedExpenses[0],
       },
       prisma,
@@ -89,6 +92,7 @@ describe('GenerateFixedExpenseTransactionsService', () => {
       userId: 'user-1',
       periodId: 'period-1',
       referenceMonth,
+      paidAt,
     });
 
     expect(prisma.fixedExpense.findMany).toHaveBeenCalledWith(

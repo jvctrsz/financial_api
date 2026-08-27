@@ -649,16 +649,18 @@ Diferente de um job/cron, a geração das `Transaction`s mensais do `FixedExpens
 
 A geração é dividida em dois services com responsabilidades distintas, seguindo o princípio de um arquivo por caso de uso (seção 13):
 
-**`GenerateSingleFixedExpenseTransactionService`** — responsabilidade única: gerar a `Transaction` de **um** `FixedExpense` específico para um `periodId` informado. Resolve `paid` conforme `paymentMethod` (ver abaixo) e chama `CreateTransactionService.executeInternal(...)` (ver seção 7) para persistir, já com `periodId`, `fixedExpenseId` e `paid` resolvidos — sem passar pelo cálculo de `billingDate`/`periodId` usado por transações comuns.
+**`GenerateSingleFixedExpenseTransactionService`** — responsabilidade única: gerar a `Transaction` de **um** `FixedExpense` específico para um `periodId` informado. Resolve `paid` conforme `paymentMethod` (ver abaixo), calcula `billingDate` a partir da data-âncora real do período e chama `CreateTransactionService.executeInternal(...)` (ver seção 7) para persistir, já com `periodId`, `fixedExpenseId`, `paid`, `transactionDate` e `billingDate` resolvidos. O `periodId` não é recalculado; o `billingDate` segue a regra normal da seção 7.
 
-**`GenerateFixedExpenseTransactionsService`** — orquestrador, chamado pelo `CreateSalaryService` (passo 6, seção 6) após a criação do novo `SalaryPeriod`. Busca todos os `FixedExpense` ativos do usuário (`deletedAt IS NULL`, e `endMonth IS NULL OR endMonth >= referenceMonth` do novo período) e chama `GenerateSingleFixedExpenseTransactionService` para cada um.
+**`GenerateFixedExpenseTransactionsService`** — orquestrador, chamado pelo `CreateSalaryService` (passo 6, seção 6) após a criação do novo `SalaryPeriod`. Busca todos os `FixedExpense` ativos do usuário (`deletedAt IS NULL`, e `endMonth IS NULL OR endMonth >= referenceMonth` do novo período) e chama `GenerateSingleFixedExpenseTransactionService` para cada um, usando `Salary.paidAt` como data-âncora.
+
+Para `FixedExpense` via `CREDIT`, `billingDate` é calculado com `calculateCreditBillingDate(dataAncora, card.closingDay)`: antes do fechamento cai no primeiro dia do mês corrente; no dia do fechamento ou depois cai no primeiro dia do mês seguinte. Para `PIX` e `DEBIT`, `billingDate = dataAncora`. Em todos os casos, `transactionDate = dataAncora`.
 
 > **Sem cenário de órfão:** `FixedExpense` nunca gera `Transaction` com `periodId = NULL` — a geração só é disparada quando o `SalaryPeriod` já existe (seja pelo fluxo lazy do `CreateSalaryService`, seja pela criação do próprio `FixedExpense` com `startInCurrentPeriod = true` — ver abaixo), então o vínculo já nasce resolvido. `InstallmentExpense` (seção 8) segue um modelo híbrido: a parcela 0 também nunca fica órfã, mas parcelas futuras (índice ≥ 1) podem ficar, religadas pelo `LinkOrphanInstallmentsService` (seção 6).
 
 ### Criação — `CreateFixedExpenseService`
 
 1. Criar o registro em `FixedExpense`.
-2. Se `startInCurrentPeriod = true` (default quando omitido): buscar o `SalaryPeriod` vigente do usuário (`endedAt IS NULL` ou cobrindo hoje) e chamar `GenerateSingleFixedExpenseTransactionService` diretamente para esse `FixedExpense` e período — sem passar pelo orquestrador `GenerateFixedExpenseTransactionsService`, já que o `FixedExpense` a processar já é conhecido.
+2. Se `startInCurrentPeriod = true` (default quando omitido): buscar o `SalaryPeriod` vigente do usuário (`endedAt IS NULL` ou cobrindo hoje) e chamar `GenerateSingleFixedExpenseTransactionService` diretamente para esse `FixedExpense` e período, usando `SalaryPeriod.startedAt` como data-âncora — sem passar pelo orquestrador `GenerateFixedExpenseTransactionsService`, já que o `FixedExpense` a processar já é conhecido.
 3. Se `startInCurrentPeriod = false`: não gerar nenhuma `Transaction` agora. A primeira ocorrência só nasce quando o próximo `SalaryPeriod` for criado.
 
 > Se não existir nenhum `SalaryPeriod` (usuário sem salário cadastrado) e `startInCurrentPeriod = true`, retornar erro orientando o cadastro do salário antes de criar um `FixedExpense` — mesmo comportamento de ausência de período já adotado em `Transaction` (seção 7).
@@ -880,6 +882,9 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 - `paymentMethod = PIX` ou `DEBIT`: a `Transaction` gerada deve nascer com `paid = false`.
 - `paymentMethod = CREDIT`: a `Transaction` gerada deve nascer com `paid = null`.
+- Deve usar a data-âncora recebida como `transactionDate`.
+- `paymentMethod = CREDIT`: deve calcular `billingDate` pela regra de `closingDay` do cartão, usando a data-âncora recebida.
+- `paymentMethod = PIX` ou `DEBIT`: deve usar `billingDate = dataAncora`.
 - Deve vincular corretamente `fixedExpenseId` e `periodId` na `Transaction` gerada, via `CreateTransactionService.executeInternal`.
 
 **`GenerateFixedExpenseTransactionsService`**

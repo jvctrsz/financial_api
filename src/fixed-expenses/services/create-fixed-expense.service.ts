@@ -75,6 +75,7 @@ export class CreateFixedExpenseService {
             userId,
             periodId: period.id,
             referenceMonth: period.referenceMonth,
+            paidAt: period.startedAt,
             fixedExpense,
           },
           tx,
