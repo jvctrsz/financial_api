@@ -1,143 +1,199 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Financial API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+API multiusuário para controle financeiro pessoal, construída com NestJS, TypeScript,
+Prisma e PostgreSQL.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+O sistema organiza os gastos por **períodos financeiros iniciados na data real de
+recebimento do salário**, em vez de assumir meses-calendário. Compras no cartão mantêm
+separados o período cujo saldo foi comprometido (`periodId`) e o mês da fatura
+(`billingDate`).
 
-## Description
+## Funcionalidades
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- autenticação JWT com access token e refresh token persistido, rotativo e revogável;
+- perfil de usuário;
+- salários e períodos financeiros;
+- categorias em dois níveis e cartão padrão;
+- transações de crédito, débito e PIX;
+- gastos parcelados no cartão ou boleto;
+- gastos fixos recorrentes gerados a cada novo período financeiro;
+- entradas mensais e reservas (`AsideExpense`);
+- relatórios de saldo, período financeiro e fatura;
+- rate limiting por usuário/IP e tipo de rota.
 
-## Project setup
+As regras de negócio completas estão em [RULES.md](./RULES.md). O contrato das rotas,
+com exemplos de requests e responses, está em [.agents/ROTAS.md](./.agents/ROTAS.md).
+
+## Stack
+
+- Node.js 24 no container oficial do projeto;
+- NestJS 11 e TypeScript;
+- PostgreSQL 16;
+- Prisma 7 com adapter PostgreSQL;
+- JWT, Passport e Argon2;
+- Jest;
+- `date-fns` para datas.
+
+## Configuração
+
+Instale as dependências:
 
 ```bash
-$ npm install
+npm install
 ```
 
-## Docker
-
-O projeto possui um `dockerfile` para a API e um `docker-compose.yml` que sobe a API junto com um banco PostgreSQL.
-
-Antes de iniciar os containers, crie o arquivo `.env` na raiz do projeto. Voce pode usar o `.env.example` como base:
+Crie `.env` a partir de `.env.example` e substitua os segredos de exemplo:
 
 ```bash
-$ cp .env.example .env
+cp .env.example .env
 ```
 
-Para executar com Docker Compose, ajuste a `DATABASE_URL` do `.env` para apontar para o servico `postgres` do Compose:
+Variáveis presentes no exemplo de ambiente:
+
+| Variável | Finalidade |
+| --- | --- |
+| `DATABASE_URL` | Conexão PostgreSQL usada pelo Prisma |
+| `POSTGRES_USER` | Usuário do container PostgreSQL |
+| `POSTGRES_PASSWORD` | Senha do container PostgreSQL |
+| `POSTGRES_DB` | Banco criado pelo container |
+| `POSTGRES_PORT` | Referência para uso local; atualmente não é consumida pelo Compose nem pela API |
+| `JWT_ACCESS_SECRET` | Assinatura do access token |
+| `JWT_REFRESH_SECRET` | Assinatura do refresh token |
+| `JWT_ACCESS_EXPIRES_IN` | Validade do access token; padrão `15m` |
+| `JWT_REFRESH_EXPIRES_IN` | Validade do JWT de refresh; padrão `7d`. O registro no banco expira em 7 dias |
+| `FRONTEND_URL` | Origem explícita permitida pelo CORS |
+| `PORT` | Porta HTTP da API; padrão `3000` |
+
+## Banco de dados
+
+Com PostgreSQL disponível e `DATABASE_URL` configurada:
+
+```bash
+npx prisma generate
+npx prisma migrate deploy
+```
+
+Para desenvolvimento de novas migrations, use `prisma migrate dev` somente em um banco
+de desenvolvimento.
+
+> A migration `20260706000000_add_installment_payment_method` adiciona uma coluna
+> obrigatória sem backfill. Ela exige banco novo/resetado ou tratamento prévio de linhas
+> antigas em `installment_expenses`.
+
+## Executando localmente
+
+```bash
+# desenvolvimento com watch
+npm run dev
+
+# execução simples
+npm run start
+
+# build e execução da saída compilada
+npm run build
+npm run start:prod
+```
+
+A porta padrão é `3000`.
+
+## Docker Compose
+
+O Compose sobe a API e o PostgreSQL 16. Para uso dentro do Compose, `DATABASE_URL` deve
+apontar para o hostname `postgres`:
 
 ```env
 DATABASE_URL=postgresql://financial:financial@postgres:5432/financial_api?schema=public
 ```
 
-Depois suba os containers:
+Suba os serviços:
 
 ```bash
-$ docker compose up --build
+docker compose up --build
 ```
 
-A API ficara disponivel em:
+A API fica disponível em `http://localhost:5000` no host. Aplique migrations no
+container com:
+
+```bash
+docker compose exec api npx prisma migrate deploy
+```
+
+## Testes e qualidade
+
+```bash
+# testes unitários
+npm test -- --runInBand
+
+# build/typecheck do Nest
+npm run build
+
+# validação do schema Prisma
+npx prisma validate
+```
+
+A suíte unitária atual possui 54 suites e 292 testes. O arquivo
+`test/app.e2e-spec.ts` ainda é o teste de exemplo do starter NestJS e espera uma rota
+`GET /` inexistente; portanto, `npm run test:e2e` não representa o contrato atual e
+permanece pendente de substituição por cenários E2E reais.
+
+O script `npm run lint` executa ESLint com `--fix` e pode modificar arquivos.
+
+## Rate limiting
+
+Todos os limites usam janela de 60 segundos:
+
+- fallback global: 100 requests;
+- leituras decoradas: 300 requests;
+- escritas decoradas: 30 requests;
+- login e refresh: 10 requests por IP.
+
+O armazenamento do rate limiting é local e em memória. Isso é adequado para uma única
+instância, mas os contadores não são compartilhados entre réplicas ou invocações
+serverless.
+
+## Estrutura
 
 ```text
-http://localhost:5000
+api/                 entrypoint serverless da Vercel
+prisma/              schema e migrations
+scripts/             utilitários de desenvolvimento
+src/
+  auth/              autenticação e sessões
+  salaries/          salários e períodos financeiros
+  transactions/      transações e vínculo de parcelas
+  installment-expenses/
+  fixed-expenses/
+  incomes/
+  aside-expenses/
+  categories/
+  cards/
+  reports/
+  shared/            helpers, constantes e guards transversais
+test/                 testes E2E
 ```
 
-Servicos criados pelo Compose:
+Cada módulo separa controllers, DTOs e um service por caso de uso. Toda rota protegida
+obtém `userId` exclusivamente do JWT.
 
-- `api`: aplica o `dockerfile`, executa a aplicacao NestJS em modo production e expoe a porta `5000` no host.
-- `postgres`: executa PostgreSQL 16 e persiste os dados no volume `financial_postgres_data`.
+## Deploy
 
-Para executar as migrations do Prisma no banco do container:
+O repositório possui dois formatos de execução:
 
-```bash
-$ docker compose exec api npx prisma migrate deploy
-```
+- container persistente, usando `dockerfile` e `docker-compose.yml`;
+- função serverless na Vercel, usando `api/index.ts` e `vercel.json`.
 
-Para parar os containers:
+Antes de usar múltiplas instâncias ou serverless em produção, o armazenamento em memória
+do rate limiting deve ser revisto para um backend compartilhado.
 
-```bash
-$ docker compose down
-```
+## Processo de desenvolvimento
 
-## Compile and run the project
+Antes de implementar mudanças, leia nesta ordem:
 
-```bash
-# development
-$ npm run start
+1. [RULES.md](./RULES.md), fonte de verdade das regras de negócio;
+2. [.agents/Controll/TODO.md](./.agents/Controll/TODO.md), escopo ativo quando o
+   documento não estiver marcado como concluído;
+3. [.agents/AGENT_RULES.md](./.agents/AGENT_RULES.md), padrões de implementação;
+4. [.agents/ROTAS.md](./.agents/ROTAS.md), contrato consumido pelo frontend.
 
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
-```
-
-## Run tests
-
-```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
-```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Ao concluir uma tarefa do TODO, marque-a como concluída e registre o resultado em
+`.agents/Controll/FINISHED.md`.

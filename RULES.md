@@ -21,7 +21,7 @@
 12. [Testes](#12-testes)
 13. [Estrutura de Módulos](#13-estrutura-de-módulos)
 14. [Endpoints](#14-endpoints)
-15. [Idempotência e Rate Limiting (Planejado)](#15-idempotência-e-rate-limiting-planejado)
+15. [Idempotência e Rate Limiting](#15-idempotência-e-rate-limiting)
 
 ---
 
@@ -88,7 +88,7 @@ Campos de relacionamento que apontam para esses identificadores devem permanecer
 Decisão de arquitetura para evitar duplicação de lógica:
 
 - **Helpers** — lógica pura de cálculo, sem acesso a banco, sem dependências de outros serviços. Vivem em `src/shared/helpers/`. Exemplos: cálculo de `billingDate`, cálculo de `referenceMonth`, transformações de data.
-- **Injeção entre módulos** — quando o caso de uso envolve banco ou regra de negócio de outro módulo. Exemplos: `CreateTransactionService` injetado no `InstallmentExpenseService`, `GenerateFixedExpenseTransactionsService` injetado no `CreateSalaryService`.
+- **Injeção entre módulos** — quando o caso de uso envolve banco ou regra de negócio de outro módulo. Exemplos: `CreateTransactionService` injetado no `CreateInstallmentExpenseService`, `GenerateFixedExpenseTransactionsService` injetado no `CreateSalaryService`.
 
 > **Regra prática:** se precisa de banco ou de regra de negócio de outro módulo, injeta. Se é lógica pura de cálculo, vira helper.
 
@@ -108,14 +108,14 @@ Diferente do `accessToken` (JWT puramente stateless, validado só pela assinatur
 
 ```prisma
 model RefreshToken {
-  id        String    @id @default(uuid())
-  userId    String
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @db.Uuid
   tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
   createdAt DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
@@ -310,7 +310,7 @@ Período Financeiro de Maio/2025:
 
 ### SalaryPeriod
 
-**Gerado automaticamente** pelo `SalaryService` sempre que um novo `Salary` é inserido. O usuário nunca interage diretamente com `SalaryPeriod`.
+**Gerado automaticamente** pelo `CreateSalaryService` sempre que um novo `Salary` é inserido. O usuário nunca interage diretamente com `SalaryPeriod`.
 
 Campos:
 
@@ -320,12 +320,18 @@ Campos:
 
 ### Fluxo ao inserir novo salário — CreateSalaryService
 
-O `CreateSalaryService` executa os seguintes passos em ordem:
+O `CreateSalaryService` aceita tanto o próximo salário cronológico quanto a inserção de
+um salário histórico entre períodos já existentes. Ele executa os seguintes passos em
+ordem:
 
 1. Criar o registro em `Salary`.
-2. Buscar o `SalaryPeriod` mais recente do usuário (onde `endedAt IS NULL`).
-3. Atualizar o `endedAt` desse período para `novoSalary.paidAt - 1 dia`.
-4. Criar o novo `SalaryPeriod` com `endedAt = NULL`.
+2. Buscar o período imediatamente anterior (`startedAt < novoSalary.paidAt`, ordenado
+   de forma decrescente) e o imediatamente posterior (`startedAt > novoSalary.paidAt`,
+   ordenado de forma crescente).
+3. Se houver período anterior, atualizar seu `endedAt` para
+   `novoSalary.paidAt - 1 dia`.
+4. Criar o novo `SalaryPeriod`. Seu `endedAt` será `NULL` quando não houver período
+   posterior; caso exista, será `periodoPosterior.startedAt - 1 dia`.
 5. Chamar `LinkOrphanInstallmentsService` passando o `periodId` recém-criado e o `referenceMonth`.
 6. Chamar `GenerateFixedExpenseTransactionsService` passando o `periodId` recém-criado — gera uma `Transaction` para cada `FixedExpense` ativo do usuário (`deletedAt IS NULL` e, se `endMonth` estiver definido, `endMonth >= referenceMonth` do novo período). Ver seção 8.1.
 
@@ -448,8 +454,8 @@ O cliente **nunca envia** `billingDate` nem `periodId`. Esses campos são **semp
 
 O `CreateTransactionService` expõe dois métodos públicos, para separar explicitamente o fluxo HTTP do fluxo entre módulos:
 
-- **`execute(userId, dto: CreateTransactionDto)`** — usado pelo controller (`POST /transactions`). Sempre calcula `billingDate` e `periodId` a partir da `transaction_date` informada, seguindo as regras desta seção.
-- **`executeInternal(params: InternalCreateTransactionParams)`** — usado exclusivamente por outros services do sistema (ex: `InstallmentExpenseService`, `GenerateSingleFixedExpenseTransactionService`), que já chegam com `periodId` e demais campos resolvidos pela sua própria lógica de domínio. Aceita também `fixedExpenseId?` e `paid?`, que **nunca** são expostos no `CreateTransactionDto` público — são parâmetros exclusivos do uso interno.
+- **`createTransaction(userId, dto: CreateTransactionDto)`** — usado pelo controller (`POST /transactions`). Sempre calcula `billingDate` e `periodId` a partir da `transactionDate` informada, seguindo as regras desta seção.
+- **`createTransactionInternal(params: InternalCreateTransactionParams)`** — usado exclusivamente por outros services do sistema (ex: `CreateInstallmentExpenseService`, `GenerateSingleFixedExpenseTransactionService`), que já chegam com `periodId` e demais campos resolvidos pela sua própria lógica de domínio. Aceita também `installmentExpenseId?`, `fixedExpenseId?` e `paid?`, que **nunca** são expostos no `CreateTransactionDto` público — são parâmetros exclusivos do uso interno.
 
 > Essa separação evita um único método com comportamento condicional escondido atrás de parâmetros opcionais — quem lê o nome do método já sabe se o cálculo automático será aplicado ou não.
 
@@ -542,7 +548,7 @@ PIX em 07/05:
 
 ### Criação
 
-Ao criar um `InstallmentExpense`, o `InstallmentExpenseService` deve **automaticamente gerar todas as parcelas** como `Transaction` individuais via `CreateTransactionService` (injeção entre módulos), calculando `billingDate` e `periodId` para cada uma.
+Ao criar um `InstallmentExpense`, o `CreateInstallmentExpenseService` deve **automaticamente gerar todas as parcelas** como `Transaction` individuais via `CreateTransactionService` (injeção entre módulos), calculando `billingDate` e `periodId` para cada uma.
 
 `startMonth` **não é mais um campo enviado pelo cliente**. O cálculo de cada parcela passa a usar como base a **data real de cadastro** (`registrationDate = now()`), preservando o dia real (não mais forçado ao dia 01). Isso é necessário porque o `billingDate` de cada parcela depende do `closingDay` do cartão em relação ao dia real da compra — forçar o dia 01 podia jogar a parcela na fatura errada.
 
@@ -649,7 +655,7 @@ Diferente de um job/cron, a geração das `Transaction`s mensais do `FixedExpens
 
 A geração é dividida em dois services com responsabilidades distintas, seguindo o princípio de um arquivo por caso de uso (seção 13):
 
-**`GenerateSingleFixedExpenseTransactionService`** — responsabilidade única: gerar a `Transaction` de **um** `FixedExpense` específico para um `periodId` informado. Resolve `paid` conforme `paymentMethod` (ver abaixo), calcula `billingDate` a partir da data-âncora real do período e chama `CreateTransactionService.executeInternal(...)` (ver seção 7) para persistir, já com `periodId`, `fixedExpenseId`, `paid`, `transactionDate` e `billingDate` resolvidos. O `periodId` não é recalculado; o `billingDate` segue a regra normal da seção 7.
+**`GenerateSingleFixedExpenseTransactionService`** — responsabilidade única: gerar a `Transaction` de **um** `FixedExpense` específico para um `periodId` informado. Resolve `paid` conforme `paymentMethod` (ver abaixo), calcula `billingDate` a partir da data-âncora real do período e chama `CreateTransactionService.createTransactionInternal(...)` (ver seção 7) para persistir, já com `periodId`, `fixedExpenseId`, `paid`, `transactionDate` e `billingDate` resolvidos. O `periodId` não é recalculado; o `billingDate` segue a regra normal da seção 7.
 
 **`GenerateFixedExpenseTransactionsService`** — orquestrador, chamado pelo `CreateSalaryService` (passo 6, seção 6) após a criação do novo `SalaryPeriod`. Busca todos os `FixedExpense` ativos do usuário (`deletedAt IS NULL`, e `endMonth IS NULL OR endMonth >= referenceMonth` do novo período) e chama `GenerateSingleFixedExpenseTransactionService` para cada um, usando `Salary.paidAt` como data-âncora.
 
@@ -800,7 +806,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 ### Prioridade Alta — Implementar antes do código
 
-**`SalaryService`**
+**Services de salários**
 
 - Deve criar salário e gerar SalaryPeriod automaticamente.
 - Deve atualizar `endedAt` do período anterior ao inserir novo salário.
@@ -838,7 +844,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Não deve afetar a parcela 0 nem transações comuns **ativas** — essas já são garantidas ausentes pela validação de bloqueio antes deste service ser chamado.
 - Não deve afetar transações de outros períodos.
 
-**`TransactionService` — regra de `billingDate`**
+**`CreateTransactionService` — regra de `billingDate`**
 
 - CRÉDITO, dia < closingDay → billingDate = 1º dia do mês corrente.
 - CRÉDITO, dia >= closingDay → billingDate = 1º dia do mês seguinte.
@@ -847,7 +853,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - DÉBITO/PIX → billingDate = transaction_date.
 - Mês com 31 dias, compra dia 30, closingDay = 30 → billingDate = mês seguinte.
 
-**`TransactionService` — regra de `periodId`**
+**`CreateTransactionService` — regra de `periodId`**
 
 - CRÉDITO: deve buscar período pelo período vigente na `transaction_date` (mesma regra de DÉBITO/PIX), não pelo `billingDate`.
 - CRÉDITO: compra após o fechamento do cartão (billingDate no mês seguinte) ainda deve debitar o saldo do período vigente na data da compra.
@@ -855,7 +861,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - CRÉDITO, DÉBITO/PIX: compra no dia anterior ao pagamento → período anterior.
 - CRÉDITO, DÉBITO/PIX: sem `SalaryPeriod` vigente (nenhum salário cadastrado ainda) → retornar erro.
 
-**`InstallmentExpenseService`**
+**`CreateInstallmentExpenseService`**
 
 - Deve gerar exatamente `totalInstallments` transações ao criar.
 - `baseDate` de cada parcela deve preservar o dia real de `registrationDate` (não forçar dia 01), avançando apenas o mês a cada parcela.
@@ -885,7 +891,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Deve usar a data-âncora recebida como `transactionDate`.
 - `paymentMethod = CREDIT`: deve calcular `billingDate` pela regra de `closingDay` do cartão, usando a data-âncora recebida.
 - `paymentMethod = PIX` ou `DEBIT`: deve usar `billingDate = dataAncora`.
-- Deve vincular corretamente `fixedExpenseId` e `periodId` na `Transaction` gerada, via `CreateTransactionService.executeInternal`.
+- Deve vincular corretamente `fixedExpenseId` e `periodId` na `Transaction` gerada, via `CreateTransactionService.createTransactionInternal`.
 
 **`GenerateFixedExpenseTransactionsService`**
 
@@ -893,12 +899,12 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Não deve gerar `Transaction` para `FixedExpense` com `endMonth` anterior ao `referenceMonth` do novo período.
 - Não deve gerar `Transaction` para `FixedExpense` soft-deletado.
 
-**`TransactionService` — `executeInternal`**
+**`CreateTransactionService` — `createTransactionInternal`**
 
 - Deve criar a `Transaction` com `periodId`, `fixedExpenseId` e `paid` exatamente como informados, sem recalcular `billingDate`/`periodId`.
-- O DTO público (`CreateTransactionDto`, usado por `execute`) não deve aceitar `periodId`, `fixedExpenseId` nem `paid` como campos de entrada.
+- O DTO público (`CreateTransactionDto`, usado por `createTransaction`) não deve aceitar `periodId`, `installmentExpenseId`, `fixedExpenseId` nem `paid` como campos de entrada.
 
-**`TransactionService` — marcar como pago (`/pay`)**
+**`PayTransactionService` — marcar como pago (`/pay`)**
 
 - Deve marcar `paid = true` em uma `Transaction` com `paid = false`.
 - Deve rejeitar marcar como pago uma `Transaction` com `paid = null` (não é ocorrência PIX/DÉBITO de `FixedExpense`).
@@ -917,7 +923,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Após finalizar, períodos passados (anteriores ao novo `endMonth`) devem continuar somando o `AsideExpense` no cálculo do saldo.
 - Após finalizar, períodos futuros (posteriores ao novo `endMonth`) não devem mais somar o `AsideExpense` no cálculo do saldo.
 
-**`ReportService`**
+**Services de relatórios**
 
 - Saldo sem flag de entradas: não soma incomes.
 - Saldo com flag ativa: soma incomes.
@@ -930,7 +936,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 
 ### Prioridade Normal
 
-**`AuthService`**
+**Services de autenticação**
 
 - Deve criar usuário com hash Argon2 (nunca plain text).
 - Deve rejeitar registro com email duplicado.
@@ -951,7 +957,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - `POST /auth/logout` deve funcionar mesmo sem `accessToken` válido (ou com header `Authorization` ausente) — não deve exigir guard de autenticação.
 - Após logout, uma tentativa de `POST /auth/refresh` com o token revogado deve ser rejeitada.
 
-**`CategoryService`**
+**Services de categorias**
 
 - Deve criar categoria raiz e subcategoria.
 - Deve rejeitar subcategoria apontando para outra subcategoria.
@@ -961,7 +967,7 @@ Todos os módulos com regras de negócio devem ter testes unitários no service.
 - Transações soft-deletadas não devem bloquear o delete da subcategoria.
 - Deve retornar árvore aninhada corretamente filtrando `deletedAt IS NULL`.
 
-**`CardService`**
+**Services de cartões**
 
 - Deve rejeitar `closingDay` fora de 1–31.
 - Deve rejeitar delete com transações vinculadas.
@@ -1008,7 +1014,7 @@ src/
 └── app.module.ts
 ```
 
-> **Módulo `fixed-expenses`:** segue a mesma estrutura, com `services/create-fixed-expense.service.ts`, `services/generate-single-fixed-expense-transaction.service.ts`, `services/generate-fixed-expense-transactions.service.ts` (este último injetado no módulo `salaries`, mesmo padrão de injeção entre módulos do `CreateTransactionService` no `InstallmentExpenseService`) e `services/delete-fixed-expense.service.ts`. O service que marca uma `Transaction` como paga (`PATCH /transactions/:id/pay`) vive no módulo `transactions`, não em `fixed-expenses` — a ação opera sobre o recurso `Transaction`, então pertence ao seu próprio módulo.
+> **Módulo `fixed-expenses`:** segue a mesma estrutura, com `services/create-fixed-expense.service.ts`, `services/generate-single-fixed-expense-transaction.service.ts`, `services/generate-fixed-expense-transactions.service.ts` (este último injetado no módulo `salaries`, mesmo padrão de injeção entre módulos do `CreateTransactionService` no `CreateInstallmentExpenseService`) e `services/delete-fixed-expense.service.ts`. O service que marca uma `Transaction` como paga (`PATCH /transactions/:id/pay`) vive no módulo `transactions`, não em `fixed-expenses` — a ação opera sobre o recurso `Transaction`, então pertence ao seu próprio módulo.
 
 ---
 
@@ -1132,9 +1138,10 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 
 ---
 
-## 15. Idempotência e Rate Limiting (Planejado)
+## 15. Idempotência e Rate Limiting
 
-> **Status: decisão de design registrada, implementação ainda não iniciada.** Esta seção documenta as escolhas já feitas, para que a implementação futura não precise reabrir essas discussões.
+> **Status atual:** idempotência permanece planejada e ainda não foi implementada.
+> Rate limiting está implementado globalmente conforme a seção 15.2.
 
 ### 15.1 Idempotência
 
@@ -1154,9 +1161,9 @@ O `userId` é sempre extraído do token — nunca do body da requisição.
 
 ```prisma
 model IdempotencyKey {
-  id           String   @id @default(uuid())
+  id           String   @id @default(uuid(7)) @db.Uuid
   key          String   @unique
-  userId       String
+  userId       String   @db.Uuid
   endpoint     String
   status       String   // "PROCESSING" | "COMPLETED"
   responseBody Json?
@@ -1173,10 +1180,17 @@ model IdempotencyKey {
 
 **Problema que resolve:** proteger contra volume excessivo de requests — principalmente bugs de frontend (loop acidental), não abuso de terceiros, dado o perfil de uso pessoal do sistema.
 
-**Mecanismo:** biblioteca oficial `@nestjs/throttler`, configurada globalmente via `ThrottlerModule.forRoot()` e `ThrottlerGuard` como `APP_GUARD`. Sem necessidade de middleware manual — a lib já resolve janela de tempo, contador e expiração.
+**Status:** implementado com a biblioteca oficial `@nestjs/throttler`, configurada globalmente via `ThrottlerModule.forRoot()` e `UserThrottlerGuard` como `APP_GUARD`.
 
-**Rastreamento:** por `userId` (extraído do JWT), não por IP puro — IP isolado penalizaria uso legítimo do próprio usuário (ex: dashboard disparando várias chamadas em paralelo). Implementado via guard customizado estendendo `ThrottlerGuard`, sobrescrevendo `getTracker()`.
+**Rastreamento:** rotas autenticadas usam `userId`, extraído do JWT pelo `UserThrottlerGuard`. Quando não existe JWT válido, o tracker usa o IP. `POST /auth/login` e `POST /auth/refresh` forçam rastreamento por IP, mesmo se a requisição trouxer Bearer token.
 
-**Limites diferenciados por tipo de rota:** rotas de leitura (`GET /reports/*`) podem ter limite mais permissivo; rotas de escrita (criação de `Transaction`, `FixedExpense`, etc.) mais restritivas — configurado via decorator `@Throttle()` por controller/rota, sobrescrevendo o limite global.
+**Limites atuais, todos em janela de 60 segundos:**
+
+- fallback global: 100 requests;
+- rotas de leitura decoradas (`GET`): 300 requests;
+- rotas de escrita decoradas (`POST`, `PATCH` e `DELETE`): 30 requests;
+- `POST /auth/login` e `POST /auth/refresh`: 10 requests por IP.
+
+Os limites específicos são configurados por `@Throttle()` e sobrescrevem o fallback global. Rotas sem decorator específico, como registro e logout, permanecem no limite global.
 
 **Armazenamento:** em memória (padrão da lib) é suficiente para o cenário atual de instância única. Caso a aplicação seja escalada para múltiplas instâncias no futuro, será necessário migrar para armazenamento compartilhado (ex: Redis via `@nest-lab/throttler-storage-redis`), pois o armazenamento em memória não é compartilhado entre instâncias diferentes.
