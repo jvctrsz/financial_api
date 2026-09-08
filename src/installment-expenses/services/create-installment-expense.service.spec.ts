@@ -75,6 +75,7 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 3,
         paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+        purchaseDate: '2025-07-07',
         categoryId: 'category-1',
         cardId: 'card-1',
       }),
@@ -91,6 +92,7 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 3,
         paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+        purchaseDate: new Date('2025-07-07T00:00:00.000Z'),
         startMonth: new Date('2025-07-01T00:00:00.000Z'),
         deletedAt: null,
       },
@@ -105,6 +107,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 2,
       paymentMethod: InstallmentPaymentMethod.BOLETO,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
     });
 
@@ -131,6 +134,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 2,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -156,6 +160,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 1,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -177,6 +182,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 2,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -208,6 +214,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 2,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
     });
 
@@ -241,6 +248,7 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 1,
         paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+        purchaseDate: '2025-07-07',
         categoryId: 'category-1',
       }),
     ).rejects.toThrow(
@@ -259,6 +267,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 2,
       paymentMethod: InstallmentPaymentMethod.BOLETO,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
     });
 
@@ -295,6 +304,7 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 1,
         paymentMethod: InstallmentPaymentMethod.BOLETO,
+        purchaseDate: '2025-07-07',
         categoryId: 'category-1',
         cardId: 'card-1',
       }),
@@ -313,6 +323,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 1,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -361,6 +372,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 2,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -391,6 +403,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 2,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -431,6 +444,7 @@ describe('CreateInstallmentExpenseService', () => {
       installmentAmount: 300,
       totalInstallments: 3,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
       categoryId: 'category-1',
       cardId: 'card-1',
     });
@@ -462,6 +476,7 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 1,
         paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+        purchaseDate: '2025-07-07',
         categoryId: 'category-1',
         cardId: 'card-1',
       }),
@@ -480,6 +495,7 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 1,
         paymentMethod: InstallmentPaymentMethod.BOLETO,
+        purchaseDate: '2025-07-07',
         categoryId: 'category-1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -507,6 +523,7 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 1,
         paymentMethod: InstallmentPaymentMethod.BOLETO,
+        purchaseDate: '2025-07-07',
         categoryId: 'category-1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -522,6 +539,7 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 1,
         paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+        purchaseDate: '2025-07-07',
         categoryId: 'category-1',
         cardId: 'card-2',
       }),
@@ -543,8 +561,148 @@ describe('CreateInstallmentExpenseService', () => {
         installmentAmount: 300,
         totalInstallments: 3,
         paymentMethod: InstallmentPaymentMethod.BOLETO,
+        purchaseDate: '2025-07-07',
         categoryId: 'category-1',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it.failing(
+    'deve reconstruir parcelas historicas, atual e futuras desde purchaseDate com periodos existentes e inexistentes',
+    async () => {
+      jest.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
+      prisma.card.findFirst.mockResolvedValue({ ...card, closingDay: 6 });
+
+      const periodsByMonth: Record<string, { id: string } | null> = {
+        '2026-05-01': { id: 'period-may' },
+        '2026-06-01': null,
+        '2026-07-01': { id: 'period-july' },
+        '2026-08-01': null,
+        '2026-09-01': { id: 'period-september' },
+        '2026-10-01': null,
+        '2026-11-01': null,
+      };
+
+      prisma.salaryPeriod.findFirst.mockImplementation(({ where }) => {
+        if (where.referenceMonth) {
+          const month = (where.referenceMonth as Date)
+            .toISOString()
+            .slice(0, 10);
+          return Promise.resolve(periodsByMonth[month] ?? null);
+        }
+
+        return Promise.resolve({ id: 'period-april' });
+      });
+
+      await service.createInstallmentExpense('user-1', {
+        description: 'Notebook',
+        totalAmount: 2400,
+        installmentAmount: 300,
+        totalInstallments: 8,
+        paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+        purchaseDate: '2026-04-20',
+        categoryId: 'category-1',
+        cardId: 'card-1',
+      });
+
+      expect(prisma.installmentExpense.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          purchaseDate: new Date('2026-04-20T00:00:00.000Z'),
+          startMonth: new Date('2026-04-01T00:00:00.000Z'),
+        }),
+      });
+      expect(prisma.transaction.create).toHaveBeenCalledTimes(8);
+
+      const expected = [
+        ['2026-04-20', '2026-05-01', 'period-april', 1],
+        ['2026-05-20', '2026-06-01', 'period-may', 2],
+        ['2026-06-20', '2026-07-01', null, 3],
+        ['2026-07-20', '2026-08-01', 'period-july', 4],
+        ['2026-08-20', '2026-09-01', null, 5],
+        ['2026-09-20', '2026-10-01', 'period-september', 6],
+        ['2026-10-20', '2026-11-01', null, 7],
+        ['2026-11-20', '2026-12-01', null, 8],
+      ];
+
+      expected.forEach(
+        (
+          [transactionDate, billingDate, periodId, installmentNumber],
+          index,
+        ) => {
+          expect(prisma.transaction.create).toHaveBeenNthCalledWith(index + 1, {
+            data: expect.objectContaining({
+              transactionDate: new Date(`${transactionDate}T00:00:00.000Z`),
+              billingDate: new Date(`${billingDate}T00:00:00.000Z`),
+              periodId,
+              installmentNumber,
+            }),
+          });
+        },
+      );
+    },
+  );
+
+  it.failing.each([
+    [19, ['2026-05-01', '2026-06-01', '2026-07-01']],
+    [20, ['2026-05-01', '2026-06-01', '2026-07-01']],
+    [21, ['2026-04-01', '2026-05-01', '2026-06-01']],
+  ])(
+    'deve calcular fatura quando closingDay %i estiver antes, no dia ou depois da parcela',
+    async (closingDay, expectedBillingDates) => {
+      jest.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
+      prisma.card.findFirst.mockResolvedValue({ ...card, closingDay });
+
+      await service.createInstallmentExpense('user-1', {
+        description: 'Compra',
+        totalAmount: 900,
+        installmentAmount: 300,
+        totalInstallments: 3,
+        paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+        purchaseDate: '2026-04-20',
+        categoryId: 'category-1',
+        cardId: 'card-1',
+      });
+
+      ['2026-04-20', '2026-05-20', '2026-06-20'].forEach(
+        (transactionDate, index) => {
+          expect(prisma.transaction.create).toHaveBeenNthCalledWith(index + 1, {
+            data: expect.objectContaining({
+              transactionDate: new Date(`${transactionDate}T00:00:00.000Z`),
+              billingDate: new Date(
+                `${expectedBillingDates[index]}T00:00:00.000Z`,
+              ),
+            }),
+          });
+        },
+      );
+    },
+  );
+
+  it.failing(
+    'deve limitar a parcela ao ultimo dia valido sem deslocar as seguintes',
+    async () => {
+      jest.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
+
+      await service.createInstallmentExpense('user-1', {
+        description: 'Compra no fim do mes',
+        totalAmount: 900,
+        installmentAmount: 300,
+        totalInstallments: 3,
+        paymentMethod: InstallmentPaymentMethod.BOLETO,
+        purchaseDate: '2026-01-31',
+        categoryId: 'category-1',
+      });
+
+      ['2026-01-31', '2026-02-28', '2026-03-31'].forEach(
+        (transactionDate, index) => {
+          expect(prisma.transaction.create).toHaveBeenNthCalledWith(index + 1, {
+            data: expect.objectContaining({
+              transactionDate: new Date(`${transactionDate}T00:00:00.000Z`),
+              billingDate: new Date(`${transactionDate}T00:00:00.000Z`),
+            }),
+          });
+        },
+      );
+    },
+  );
 });

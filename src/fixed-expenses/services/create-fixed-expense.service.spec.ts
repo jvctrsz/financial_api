@@ -26,6 +26,7 @@ describe('CreateFixedExpenseService', () => {
     name: 'Internet',
     amount: 120,
     paymentMethod: TransactionType.PIX,
+    chargeDay: 7,
     deletedAt: null,
   };
   const period = {
@@ -59,6 +60,7 @@ describe('CreateFixedExpenseService', () => {
         amount: 120,
         categoryId: 'category-1',
         paymentMethod: TransactionType.PIX,
+        chargeDay: 7,
       }),
     ).resolves.toBe(fixedExpense);
 
@@ -70,6 +72,7 @@ describe('CreateFixedExpenseService', () => {
         name: 'Internet',
         amount: 120,
         paymentMethod: TransactionType.PIX,
+        chargeDay: 7,
         endMonth: null,
         deletedAt: null,
       },
@@ -94,6 +97,7 @@ describe('CreateFixedExpenseService', () => {
       amount: 120,
       categoryId: 'category-1',
       paymentMethod: TransactionType.PIX,
+      chargeDay: 7,
       startInCurrentPeriod: false,
     });
 
@@ -112,6 +116,7 @@ describe('CreateFixedExpenseService', () => {
         amount: 120,
         categoryId: 'category-1',
         paymentMethod: TransactionType.PIX,
+        chargeDay: 7,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
@@ -131,6 +136,7 @@ describe('CreateFixedExpenseService', () => {
       amount: 90,
       categoryId: 'category-1',
       paymentMethod: TransactionType.CREDIT,
+      chargeDay: 7,
       startInCurrentPeriod: false,
     });
 
@@ -151,6 +157,7 @@ describe('CreateFixedExpenseService', () => {
         amount: 120,
         categoryId: 'category-1',
         paymentMethod: TransactionType.PIX,
+        chargeDay: 7,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 

@@ -45,6 +45,7 @@ describe('InstallmentExpensesController', () => {
       installmentAmount: 300,
       totalInstallments: 10,
       paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2026-04-20',
       categoryId: 'category-1',
       cardId: 'card-1',
     };

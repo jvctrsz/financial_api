@@ -15,10 +15,7 @@ export class CreateFixedExpenseService {
     private readonly generateSingleFixedExpenseTransactionService: GenerateSingleFixedExpenseTransactionService,
   ) {}
 
-  createFixedExpense = async (
-    userId: string,
-    dto: CreateFixedExpenseDto,
-  ) => {
+  createFixedExpense = async (userId: string, dto: CreateFixedExpenseDto) => {
     const endMonth = dto.endMonth ? parseDateOnly(dto.endMonth) : null;
 
     if (endMonth) {
@@ -37,6 +34,7 @@ export class CreateFixedExpenseService {
           name: dto.name,
           amount: dto.amount,
           paymentMethod: dto.paymentMethod,
+          chargeDay: dto.chargeDay,
           endMonth,
           deletedAt: null,
         },

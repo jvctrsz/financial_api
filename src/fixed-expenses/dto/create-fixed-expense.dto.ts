@@ -3,11 +3,13 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
 } from 'class-validator';
 
@@ -25,6 +27,11 @@ export class CreateFixedExpenseDto {
 
   @IsEnum(TransactionType)
   paymentMethod: TransactionType;
+
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  chargeDay: number;
 
   @IsOptional()
   @IsUUID()
