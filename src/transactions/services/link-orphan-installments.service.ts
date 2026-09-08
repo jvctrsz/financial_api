@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { addUtcMonthsClamped } from '../../shared/helpers/add-utc-months-clamped.helper';
 
 type LinkOrphanInstallmentsParams = {
   userId: string;
@@ -19,6 +20,7 @@ export class LinkOrphanInstallmentsService {
     prismaClient: PrismaTransactionClient = this.prisma,
   ) => {
     const { userId, periodId, referenceMonth } = params;
+    const nextReferenceMonth = addUtcMonthsClamped(referenceMonth, 1);
 
     return prismaClient.$executeRaw(Prisma.sql`
       UPDATE "transactions"
@@ -26,7 +28,8 @@ export class LinkOrphanInstallmentsService {
       WHERE "userId" = ${userId}::uuid
         AND "installmentExpenseId" IS NOT NULL
         AND "periodId" IS NULL
-        AND date_trunc('month', "transactionDate")::date = ${referenceMonth}::date
+        AND "transactionDate" >= ${referenceMonth}::date
+        AND "transactionDate" < ${nextReferenceMonth}::date
     `);
   };
 }

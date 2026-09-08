@@ -30,9 +30,15 @@ describe('LinkOrphanInstallmentsService', () => {
     expect(query.sql).toContain('UPDATE "transactions"');
     expect(query.sql).toContain('"periodId" IS NULL');
     expect(query.sql).toContain('"installmentExpenseId" IS NOT NULL');
-    expect(query.sql).toContain('date_trunc(\'month\', "transactionDate")');
+    expect(query.sql).toContain('"transactionDate" >=');
+    expect(query.sql).toContain('"transactionDate" <');
     expect(query.sql).not.toContain('"billingDate"');
-    expect(query.values).toEqual(['period-june', 'user-1', referenceMonth]);
+    expect(query.values).toEqual([
+      'period-june',
+      'user-1',
+      referenceMonth,
+      new Date('2025-07-01T00:00:00.000Z'),
+    ]);
   });
 
   it('deve filtrar pelo usuario informado', async () => {
@@ -42,9 +48,7 @@ describe('LinkOrphanInstallmentsService', () => {
       referenceMonth,
     });
 
-    expect(prisma.$executeRaw.mock.calls[0][0].sql).toContain(
-      '"userId" =',
-    );
+    expect(prisma.$executeRaw.mock.calls[0][0].sql).toContain('"userId" =');
   });
 
   it('nao deve afetar transacoes comuns, parcelas ja vinculadas ou fixed expenses', async () => {
@@ -58,5 +62,17 @@ describe('LinkOrphanInstallmentsService', () => {
 
     expect(query.sql).toContain('"installmentExpenseId" IS NOT NULL');
     expect(query.sql).toContain('"periodId" IS NULL');
+  });
+
+  it('deve incluir parcelas historicas independentemente do installmentNumber', async () => {
+    await service.linkOrphanInstallments({
+      userId: 'user-1',
+      periodId: 'period-june',
+      referenceMonth,
+    });
+
+    const query = prisma.$executeRaw.mock.calls[0][0];
+
+    expect(query.sql).not.toContain('"installmentNumber"');
   });
 });

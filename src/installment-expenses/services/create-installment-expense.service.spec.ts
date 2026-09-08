@@ -10,7 +10,7 @@ describe('CreateInstallmentExpenseService', () => {
   let createTransactionService: CreateTransactionService;
   let service: CreateInstallmentExpenseService;
 
-  const registrationDate = new Date('2025-07-07T10:30:00.000Z');
+  const systemDate = new Date('2025-07-07T10:30:00.000Z');
   const subcategory = {
     id: 'category-1',
     userId: 'user-1',
@@ -40,7 +40,7 @@ describe('CreateInstallmentExpenseService', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
-    jest.setSystemTime(registrationDate);
+    jest.setSystemTime(systemDate);
 
     prisma = makePrisma();
     createTransactionService = new CreateTransactionService(
@@ -100,7 +100,7 @@ describe('CreateInstallmentExpenseService', () => {
     expect(prisma.transaction.create).toHaveBeenCalledTimes(3);
   });
 
-  it('deve preservar o dia real da registrationDate ao avancar as parcelas', async () => {
+  it('deve preservar o dia real da purchaseDate ao avancar as parcelas', async () => {
     await service.createInstallmentExpense('user-1', {
       description: 'Curso',
       totalAmount: 600,
@@ -115,14 +115,14 @@ describe('CreateInstallmentExpenseService', () => {
       data: expect.objectContaining({
         type: TransactionType.DEBIT,
         cardId: null,
-        transactionDate: new Date('2025-07-07T10:30:00.000Z'),
-        billingDate: new Date('2025-07-07T10:30:00.000Z'),
+        transactionDate: new Date('2025-07-07T00:00:00.000Z'),
+        billingDate: new Date('2025-07-07T00:00:00.000Z'),
       }),
     });
     expect(prisma.transaction.create).toHaveBeenNthCalledWith(2, {
       data: expect.objectContaining({
-        transactionDate: new Date('2025-08-07T10:30:00.000Z'),
-        billingDate: new Date('2025-08-07T10:30:00.000Z'),
+        transactionDate: new Date('2025-08-07T00:00:00.000Z'),
+        billingDate: new Date('2025-08-07T00:00:00.000Z'),
       }),
     });
   });
@@ -169,7 +169,7 @@ describe('CreateInstallmentExpenseService', () => {
       data: expect.objectContaining({
         type: TransactionType.CREDIT,
         cardId: 'card-1',
-        transactionDate: new Date('2025-07-07T10:30:00.000Z'),
+        transactionDate: new Date('2025-07-07T00:00:00.000Z'),
         billingDate: new Date('2025-08-01T00:00:00.000Z'),
       }),
     });
@@ -282,16 +282,16 @@ describe('CreateInstallmentExpenseService', () => {
       data: expect.objectContaining({
         type: TransactionType.DEBIT,
         cardId: null,
-        transactionDate: new Date('2025-07-07T10:30:00.000Z'),
-        billingDate: new Date('2025-07-07T10:30:00.000Z'),
+        transactionDate: new Date('2025-07-07T00:00:00.000Z'),
+        billingDate: new Date('2025-07-07T00:00:00.000Z'),
       }),
     });
     expect(prisma.transaction.create).toHaveBeenNthCalledWith(2, {
       data: expect.objectContaining({
         type: TransactionType.DEBIT,
         cardId: null,
-        transactionDate: new Date('2025-08-07T10:30:00.000Z'),
-        billingDate: new Date('2025-08-07T10:30:00.000Z'),
+        transactionDate: new Date('2025-08-07T00:00:00.000Z'),
+        billingDate: new Date('2025-08-07T00:00:00.000Z'),
       }),
     });
   });
@@ -332,12 +332,12 @@ describe('CreateInstallmentExpenseService', () => {
       where: {
         userId: 'user-1',
         startedAt: {
-          lte: new Date('2025-07-07T10:30:00.000Z'),
+          lte: new Date('2025-07-07T00:00:00.000Z'),
         },
         OR: [
           {
             endedAt: {
-              gte: new Date('2025-07-07T10:30:00.000Z'),
+              gte: new Date('2025-07-07T00:00:00.000Z'),
             },
           },
           {
@@ -385,7 +385,7 @@ describe('CreateInstallmentExpenseService', () => {
     });
     expect(prisma.transaction.create).toHaveBeenNthCalledWith(2, {
       data: expect.objectContaining({
-        transactionDate: new Date('2025-08-07T10:30:00.000Z'),
+        transactionDate: new Date('2025-08-07T00:00:00.000Z'),
         periodId: 'period-august',
       }),
     });
@@ -466,23 +466,27 @@ describe('CreateInstallmentExpenseService', () => {
     });
   });
 
-  it('deve rejeitar e nao criar parcelas quando nao existir SalaryPeriod vigente', async () => {
+  it('deve importar a primeira parcela com periodId null quando nao existir SalaryPeriod para purchaseDate', async () => {
     prisma.salaryPeriod.findFirst.mockResolvedValue(null);
 
-    await expect(
-      service.createInstallmentExpense('user-1', {
-        description: 'Notebook',
-        totalAmount: 300,
-        installmentAmount: 300,
-        totalInstallments: 1,
-        paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
-        purchaseDate: '2025-07-07',
-        categoryId: 'category-1',
-        cardId: 'card-1',
-      }),
-    ).rejects.toThrow('Cadastre seu salário antes de registrar transações.');
+    await service.createInstallmentExpense('user-1', {
+      description: 'Notebook',
+      totalAmount: 300,
+      installmentAmount: 300,
+      totalInstallments: 1,
+      paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2025-07-07',
+      categoryId: 'category-1',
+      cardId: 'card-1',
+    });
 
-    expect(prisma.transaction.create).not.toHaveBeenCalled();
+    expect(prisma.transaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        transactionDate: new Date('2025-07-07T00:00:00.000Z'),
+        periodId: null,
+        installmentNumber: 1,
+      }),
+    });
   });
 
   it('deve rejeitar categoryId inexistente, raiz, de outro usuario ou soft-deletada', async () => {
@@ -567,82 +571,74 @@ describe('CreateInstallmentExpenseService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it.failing(
-    'deve reconstruir parcelas historicas, atual e futuras desde purchaseDate com periodos existentes e inexistentes',
-    async () => {
-      jest.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
-      prisma.card.findFirst.mockResolvedValue({ ...card, closingDay: 6 });
+  it('deve reconstruir parcelas historicas, atual e futuras desde purchaseDate com periodos existentes e inexistentes', async () => {
+    jest.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
+    prisma.card.findFirst.mockResolvedValue({ ...card, closingDay: 6 });
 
-      const periodsByMonth: Record<string, { id: string } | null> = {
-        '2026-05-01': { id: 'period-may' },
-        '2026-06-01': null,
-        '2026-07-01': { id: 'period-july' },
-        '2026-08-01': null,
-        '2026-09-01': { id: 'period-september' },
-        '2026-10-01': null,
-        '2026-11-01': null,
-      };
+    const periodsByMonth: Record<string, { id: string } | null> = {
+      '2026-05-01': { id: 'period-may' },
+      '2026-06-01': null,
+      '2026-07-01': { id: 'period-july' },
+      '2026-08-01': null,
+      '2026-09-01': { id: 'period-september' },
+      '2026-10-01': null,
+      '2026-11-01': null,
+    };
 
-      prisma.salaryPeriod.findFirst.mockImplementation(({ where }) => {
-        if (where.referenceMonth) {
-          const month = (where.referenceMonth as Date)
-            .toISOString()
-            .slice(0, 10);
-          return Promise.resolve(periodsByMonth[month] ?? null);
-        }
+    prisma.salaryPeriod.findFirst.mockImplementation(({ where }) => {
+      if (where.referenceMonth) {
+        const month = (where.referenceMonth as Date).toISOString().slice(0, 10);
+        return Promise.resolve(periodsByMonth[month] ?? null);
+      }
 
-        return Promise.resolve({ id: 'period-april' });
-      });
+      return Promise.resolve({ id: 'period-april' });
+    });
 
-      await service.createInstallmentExpense('user-1', {
-        description: 'Notebook',
-        totalAmount: 2400,
-        installmentAmount: 300,
-        totalInstallments: 8,
-        paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
-        purchaseDate: '2026-04-20',
-        categoryId: 'category-1',
-        cardId: 'card-1',
-      });
+    await service.createInstallmentExpense('user-1', {
+      description: 'Notebook',
+      totalAmount: 2400,
+      installmentAmount: 300,
+      totalInstallments: 8,
+      paymentMethod: InstallmentPaymentMethod.CREDIT_CARD,
+      purchaseDate: '2026-04-20',
+      categoryId: 'category-1',
+      cardId: 'card-1',
+    });
 
-      expect(prisma.installmentExpense.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          purchaseDate: new Date('2026-04-20T00:00:00.000Z'),
-          startMonth: new Date('2026-04-01T00:00:00.000Z'),
-        }),
-      });
-      expect(prisma.transaction.create).toHaveBeenCalledTimes(8);
+    expect(prisma.installmentExpense.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        purchaseDate: new Date('2026-04-20T00:00:00.000Z'),
+        startMonth: new Date('2026-04-01T00:00:00.000Z'),
+      }),
+    });
+    expect(prisma.transaction.create).toHaveBeenCalledTimes(8);
 
-      const expected = [
-        ['2026-04-20', '2026-05-01', 'period-april', 1],
-        ['2026-05-20', '2026-06-01', 'period-may', 2],
-        ['2026-06-20', '2026-07-01', null, 3],
-        ['2026-07-20', '2026-08-01', 'period-july', 4],
-        ['2026-08-20', '2026-09-01', null, 5],
-        ['2026-09-20', '2026-10-01', 'period-september', 6],
-        ['2026-10-20', '2026-11-01', null, 7],
-        ['2026-11-20', '2026-12-01', null, 8],
-      ];
+    const expected = [
+      ['2026-04-20', '2026-05-01', 'period-april', 1],
+      ['2026-05-20', '2026-06-01', 'period-may', 2],
+      ['2026-06-20', '2026-07-01', null, 3],
+      ['2026-07-20', '2026-08-01', 'period-july', 4],
+      ['2026-08-20', '2026-09-01', null, 5],
+      ['2026-09-20', '2026-10-01', 'period-september', 6],
+      ['2026-10-20', '2026-11-01', null, 7],
+      ['2026-11-20', '2026-12-01', null, 8],
+    ];
 
-      expected.forEach(
-        (
-          [transactionDate, billingDate, periodId, installmentNumber],
-          index,
-        ) => {
-          expect(prisma.transaction.create).toHaveBeenNthCalledWith(index + 1, {
-            data: expect.objectContaining({
-              transactionDate: new Date(`${transactionDate}T00:00:00.000Z`),
-              billingDate: new Date(`${billingDate}T00:00:00.000Z`),
-              periodId,
-              installmentNumber,
-            }),
-          });
-        },
-      );
-    },
-  );
+    expected.forEach(
+      ([transactionDate, billingDate, periodId, installmentNumber], index) => {
+        expect(prisma.transaction.create).toHaveBeenNthCalledWith(index + 1, {
+          data: expect.objectContaining({
+            transactionDate: new Date(`${transactionDate}T00:00:00.000Z`),
+            billingDate: new Date(`${billingDate}T00:00:00.000Z`),
+            periodId,
+            installmentNumber,
+          }),
+        });
+      },
+    );
+  });
 
-  it.failing.each([
+  it.each([
     [19, ['2026-05-01', '2026-06-01', '2026-07-01']],
     [20, ['2026-05-01', '2026-06-01', '2026-07-01']],
     [21, ['2026-04-01', '2026-05-01', '2026-06-01']],
@@ -678,31 +674,28 @@ describe('CreateInstallmentExpenseService', () => {
     },
   );
 
-  it.failing(
-    'deve limitar a parcela ao ultimo dia valido sem deslocar as seguintes',
-    async () => {
-      jest.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
+  it('deve limitar a parcela ao ultimo dia valido sem deslocar as seguintes', async () => {
+    jest.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
 
-      await service.createInstallmentExpense('user-1', {
-        description: 'Compra no fim do mes',
-        totalAmount: 900,
-        installmentAmount: 300,
-        totalInstallments: 3,
-        paymentMethod: InstallmentPaymentMethod.BOLETO,
-        purchaseDate: '2026-01-31',
-        categoryId: 'category-1',
-      });
+    await service.createInstallmentExpense('user-1', {
+      description: 'Compra no fim do mes',
+      totalAmount: 900,
+      installmentAmount: 300,
+      totalInstallments: 3,
+      paymentMethod: InstallmentPaymentMethod.BOLETO,
+      purchaseDate: '2026-01-31',
+      categoryId: 'category-1',
+    });
 
-      ['2026-01-31', '2026-02-28', '2026-03-31'].forEach(
-        (transactionDate, index) => {
-          expect(prisma.transaction.create).toHaveBeenNthCalledWith(index + 1, {
-            data: expect.objectContaining({
-              transactionDate: new Date(`${transactionDate}T00:00:00.000Z`),
-              billingDate: new Date(`${transactionDate}T00:00:00.000Z`),
-            }),
-          });
-        },
-      );
-    },
-  );
+    ['2026-01-31', '2026-02-28', '2026-03-31'].forEach(
+      (transactionDate, index) => {
+        expect(prisma.transaction.create).toHaveBeenNthCalledWith(index + 1, {
+          data: expect.objectContaining({
+            transactionDate: new Date(`${transactionDate}T00:00:00.000Z`),
+            billingDate: new Date(`${transactionDate}T00:00:00.000Z`),
+          }),
+        });
+      },
+    );
+  });
 });

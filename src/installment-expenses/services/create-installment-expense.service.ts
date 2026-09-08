@@ -5,13 +5,13 @@ import {
   Prisma,
   TransactionType,
 } from '@prisma/client';
-import { addMonths } from 'date-fns';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   firstDayOfUtcMonth,
   parseDateOnly,
 } from '../../salaries/utils/date-only.util';
 import { calculateCreditBillingDate } from '../../shared/helpers/billing-date.helper';
+import { addUtcMonthsClamped } from '../../shared/helpers/add-utc-months-clamped.helper';
 import { CreateTransactionService } from '../../transactions/services/create-transaction.service';
 import { CreateInstallmentExpenseDto } from '../dto/create-installment-expense.dto';
 
@@ -29,7 +29,6 @@ export class CreateInstallmentExpenseService {
     userId: string,
     dto: CreateInstallmentExpenseDto,
   ) => {
-    const registrationDate = new Date();
     const purchaseDate = parseDateOnly(dto.purchaseDate);
     const startMonth = firstDayOfUtcMonth(purchaseDate);
 
@@ -56,7 +55,7 @@ export class CreateInstallmentExpenseService {
       });
 
       for (let index = 0; index < dto.totalInstallments; index += 1) {
-        const baseDate = addMonths(registrationDate, index);
+        const baseDate = addUtcMonthsClamped(purchaseDate, index);
         const billingDate = this.calculateInstallmentBillingDate(
           baseDate,
           card,
@@ -73,6 +72,7 @@ export class CreateInstallmentExpenseService {
             cardId: card?.id ?? null,
             installmentExpenseId: installmentExpense.id,
             fixedExpenseId: null,
+            installmentNumber: index + 1,
             paid: null,
             periodId,
             type,
@@ -214,13 +214,7 @@ export class CreateInstallmentExpenseService {
       orderBy: { startedAt: 'desc' },
     });
 
-    if (!period) {
-      throw new BadRequestException(
-        'Cadastre seu salário antes de registrar transações.',
-      );
-    }
-
-    return period.id;
+    return period?.id ?? null;
   };
 
   private resolveFutureInstallmentPeriodId = async (
