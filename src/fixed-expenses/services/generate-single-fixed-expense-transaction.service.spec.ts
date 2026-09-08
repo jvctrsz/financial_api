@@ -172,4 +172,86 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
       prisma,
     );
   });
+
+  it.failing.each([
+    [5, '2026-09-05', '2026-09-01'],
+    [6, '2026-09-06', '2026-10-01'],
+    [7, '2026-09-07', '2026-10-01'],
+  ])(
+    'deve usar chargeDay %i antes, no dia ou depois do closingDay',
+    async (chargeDay, expectedTransactionDate, expectedBillingDate) => {
+      prisma.card.findFirst.mockResolvedValue({
+        id: 'card-1',
+        userId: 'user-1',
+        closingDay: 6,
+      });
+
+      await service.generateSingleFixedExpenseTransaction({
+        userId: 'user-1',
+        periodId: 'period-september',
+        referenceMonth: new Date('2026-09-01T00:00:00.000Z'),
+        paidAt: new Date('2026-09-04T00:00:00.000Z'),
+        fixedExpense: {
+          id: 'fixed-expense-1',
+          userId: 'user-1',
+          categoryId: 'category-1',
+          cardId: 'card-1',
+          name: 'Assinatura',
+          amount: 90,
+          paymentMethod: TransactionType.CREDIT,
+          chargeDay,
+        } as never,
+      });
+
+      expect(
+        createTransactionService.createTransactionInternal,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          periodId: 'period-september',
+          transactionDate: new Date(`${expectedTransactionDate}T00:00:00.000Z`),
+          billingDate: new Date(`${expectedBillingDate}T00:00:00.000Z`),
+        }),
+        prisma,
+      );
+    },
+  );
+
+  it.failing(
+    'deve limitar chargeDay ao ultimo dia valido de meses menores',
+    async () => {
+      prisma.card.findFirst.mockResolvedValue({
+        id: 'card-1',
+        userId: 'user-1',
+        closingDay: 6,
+      });
+
+      await service.generateSingleFixedExpenseTransaction({
+        userId: 'user-1',
+        periodId: 'period-february',
+        referenceMonth: new Date('2026-02-01T00:00:00.000Z'),
+        paidAt: new Date('2026-02-04T00:00:00.000Z'),
+        fixedExpense: {
+          id: 'fixed-expense-1',
+          userId: 'user-1',
+          categoryId: 'category-1',
+          cardId: 'card-1',
+          name: 'Assinatura',
+          amount: 90,
+          paymentMethod: TransactionType.CREDIT,
+          chargeDay: 31,
+        } as never,
+      });
+
+      expect(
+        createTransactionService.createTransactionInternal,
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          periodId: 'period-february',
+          transactionDate: new Date('2026-02-28T00:00:00.000Z'),
+          billingDate: new Date('2026-03-01T00:00:00.000Z'),
+        }),
+        prisma,
+      );
+    },
+  );
 });

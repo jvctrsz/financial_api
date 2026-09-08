@@ -1,5 +1,6 @@
 import { InstallmentPaymentMethod } from '@prisma/client';
 import {
+  IsDateString,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -29,6 +30,9 @@ export class CreateInstallmentExpenseDto {
 
   @IsEnum(InstallmentPaymentMethod)
   paymentMethod: InstallmentPaymentMethod;
+
+  @IsDateString()
+  purchaseDate: string;
 
   @IsUUID()
   categoryId: string;

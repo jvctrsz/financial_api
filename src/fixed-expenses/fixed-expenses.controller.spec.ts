@@ -44,6 +44,7 @@ describe('FixedExpensesController', () => {
       amount: 120,
       categoryId: 'category-1',
       paymentMethod: TransactionType.PIX,
+      chargeDay: 7,
     };
     const fixedExpense = { id: 'fixed-expense-1' };
 

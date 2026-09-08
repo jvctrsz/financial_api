@@ -7,7 +7,10 @@ import {
 } from '@prisma/client';
 import { addMonths } from 'date-fns';
 import { PrismaService } from '../../prisma/prisma.service';
-import { firstDayOfUtcMonth } from '../../salaries/utils/date-only.util';
+import {
+  firstDayOfUtcMonth,
+  parseDateOnly,
+} from '../../salaries/utils/date-only.util';
 import { calculateCreditBillingDate } from '../../shared/helpers/billing-date.helper';
 import { CreateTransactionService } from '../../transactions/services/create-transaction.service';
 import { CreateInstallmentExpenseDto } from '../dto/create-installment-expense.dto';
@@ -27,7 +30,8 @@ export class CreateInstallmentExpenseService {
     dto: CreateInstallmentExpenseDto,
   ) => {
     const registrationDate = new Date();
-    const startMonth = firstDayOfUtcMonth(registrationDate);
+    const purchaseDate = parseDateOnly(dto.purchaseDate);
+    const startMonth = firstDayOfUtcMonth(purchaseDate);
 
     this.validateInstallmentTotal(dto);
 
@@ -45,6 +49,7 @@ export class CreateInstallmentExpenseService {
           installmentAmount: dto.installmentAmount,
           totalInstallments: dto.totalInstallments,
           paymentMethod: dto.paymentMethod,
+          purchaseDate,
           startMonth,
           deletedAt: null,
         },
@@ -59,11 +64,7 @@ export class CreateInstallmentExpenseService {
         const periodId =
           index === 0
             ? await this.resolveCurrentInstallmentPeriodId(tx, userId, baseDate)
-            : await this.resolveFutureInstallmentPeriodId(
-                tx,
-                userId,
-                baseDate,
-              );
+            : await this.resolveFutureInstallmentPeriodId(tx, userId, baseDate);
 
         await this.createTransactionService.createTransactionInternal(
           {
@@ -237,4 +238,3 @@ export class CreateInstallmentExpenseService {
     return period?.id ?? null;
   };
 }
-

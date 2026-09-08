@@ -480,6 +480,7 @@ describe('CreateTransactionService', () => {
         cardId: null,
         installmentExpenseId: null,
         fixedExpenseId: 'fixed-expense-1',
+        installmentNumber: null,
         periodId: 'period-internal',
         type: TransactionType.PIX,
         amount: 120,

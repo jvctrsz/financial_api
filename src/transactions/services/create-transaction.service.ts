@@ -14,6 +14,7 @@ export type InternalCreateTransactionParams = {
   periodId: string | null;
   installmentExpenseId?: string | null;
   fixedExpenseId?: string | null;
+  installmentNumber?: number | null;
   paid?: boolean | null;
   type: TransactionType;
   amount: number;
@@ -63,6 +64,7 @@ export class CreateTransactionService {
         cardId: params.cardId,
         installmentExpenseId: params.installmentExpenseId ?? null,
         fixedExpenseId: params.fixedExpenseId ?? null,
+        installmentNumber: params.installmentNumber ?? null,
         periodId: params.periodId,
         type: params.type,
         amount: params.amount,
