@@ -57,7 +57,9 @@ export class GenerateFixedExpenseTransactionsService {
           prismaClient,
         );
 
-      transactions.push(transaction);
+      if (transaction) {
+        transactions.push(transaction);
+      }
     }
 
     return transactions;

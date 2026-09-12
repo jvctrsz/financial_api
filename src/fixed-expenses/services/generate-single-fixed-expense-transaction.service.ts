@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { FixedExpense, Prisma, TransactionType } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { toUtcDateOnly } from '../../salaries/utils/date-only.util';
 import { calculateCreditBillingDate } from '../../shared/helpers/billing-date.helper';
+import { resolveFixedExpenseOccurrenceDate } from '../../shared/helpers/fixed-expense-occurrence-date.helper';
 import { CreateTransactionService } from '../../transactions/services/create-transaction.service';
 
 type PrismaTransactionClient = PrismaService | Prisma.TransactionClient;
@@ -25,11 +27,21 @@ export class GenerateSingleFixedExpenseTransactionService {
     params: GenerateSingleFixedExpenseTransactionParams,
     prismaClient: PrismaTransactionClient = this.prisma,
   ) => {
-    const { userId, periodId, paidAt, fixedExpense } = params;
+    const { userId, periodId, referenceMonth, paidAt, fixedExpense } = params;
+    const occurrenceDate = resolveFixedExpenseOccurrenceDate({
+      periodStartedAt: paidAt,
+      referenceMonth,
+      chargeDay: fixedExpense.chargeDay,
+    });
+
+    if (occurrenceDate < toUtcDateOnly(fixedExpense.createdAt)) {
+      return null;
+    }
+
     const billingDate = await this.calculateBillingDate(
       userId,
       fixedExpense,
-      paidAt,
+      occurrenceDate,
       prismaClient,
     );
 
@@ -46,7 +58,7 @@ export class GenerateSingleFixedExpenseTransactionService {
         type: fixedExpense.paymentMethod,
         amount: Number(fixedExpense.amount),
         description: fixedExpense.name,
-        transactionDate: paidAt,
+        transactionDate: occurrenceDate,
         billingDate,
       },
       prismaClient,
@@ -56,11 +68,11 @@ export class GenerateSingleFixedExpenseTransactionService {
   private calculateBillingDate = async (
     userId: string,
     fixedExpense: FixedExpense,
-    paidAt: Date,
+    occurrenceDate: Date,
     prismaClient: PrismaTransactionClient,
   ) => {
     if (fixedExpense.paymentMethod !== TransactionType.CREDIT) {
-      return paidAt;
+      return occurrenceDate;
     }
 
     if (!fixedExpense.cardId) {
@@ -78,6 +90,6 @@ export class GenerateSingleFixedExpenseTransactionService {
       throw new BadRequestException('Cartão não encontrado.');
     }
 
-    return calculateCreditBillingDate(paidAt, card.closingDay);
+    return calculateCreditBillingDate(occurrenceDate, card.closingDay);
   };
 }

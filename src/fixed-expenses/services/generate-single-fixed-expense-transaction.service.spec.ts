@@ -41,6 +41,8 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
           name: 'Internet',
           amount: 120,
           paymentMethod,
+          chargeDay: 7,
+          createdAt: new Date('2025-01-01T00:00:00.000Z'),
         } as never,
       });
 
@@ -82,6 +84,8 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
         name: 'Assinatura',
         amount: 90,
         paymentMethod: TransactionType.CREDIT,
+        chargeDay: 7,
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
       } as never,
     });
 
@@ -119,6 +123,8 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
         name: 'Assinatura',
         amount: 90,
         paymentMethod: TransactionType.CREDIT,
+        chargeDay: 7,
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
       } as never,
     });
 
@@ -159,6 +165,8 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
         name: 'Assinatura',
         amount: 90,
         paymentMethod: TransactionType.CREDIT,
+        chargeDay: 7,
+        createdAt: new Date('2025-01-01T00:00:00.000Z'),
       } as never,
     });
 
@@ -173,7 +181,7 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
     );
   });
 
-  it.failing.each([
+  it.each([
     [5, '2026-09-05', '2026-09-01'],
     [6, '2026-09-06', '2026-10-01'],
     [7, '2026-09-07', '2026-10-01'],
@@ -200,6 +208,7 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
           amount: 90,
           paymentMethod: TransactionType.CREDIT,
           chargeDay,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
         } as never,
       });
 
@@ -216,42 +225,67 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
     },
   );
 
-  it.failing(
-    'deve limitar chargeDay ao ultimo dia valido de meses menores',
-    async () => {
-      prisma.card.findFirst.mockResolvedValue({
-        id: 'card-1',
-        userId: 'user-1',
-        closingDay: 6,
-      });
+  it('deve limitar chargeDay ao ultimo dia valido de meses menores', async () => {
+    prisma.card.findFirst.mockResolvedValue({
+      id: 'card-1',
+      userId: 'user-1',
+      closingDay: 6,
+    });
 
-      await service.generateSingleFixedExpenseTransaction({
+    await service.generateSingleFixedExpenseTransaction({
+      userId: 'user-1',
+      periodId: 'period-february',
+      referenceMonth: new Date('2026-02-01T00:00:00.000Z'),
+      paidAt: new Date('2026-02-04T00:00:00.000Z'),
+      fixedExpense: {
+        id: 'fixed-expense-1',
         userId: 'user-1',
+        categoryId: 'category-1',
+        cardId: 'card-1',
+        name: 'Assinatura',
+        amount: 90,
+        paymentMethod: TransactionType.CREDIT,
+        chargeDay: 31,
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      } as never,
+    });
+
+    expect(
+      createTransactionService.createTransactionInternal,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
         periodId: 'period-february',
-        referenceMonth: new Date('2026-02-01T00:00:00.000Z'),
-        paidAt: new Date('2026-02-04T00:00:00.000Z'),
+        transactionDate: new Date('2026-02-28T00:00:00.000Z'),
+        billingDate: new Date('2026-03-01T00:00:00.000Z'),
+      }),
+      prisma,
+    );
+  });
+
+  it('nao deve gerar ocorrencia anterior a criacao do FixedExpense', async () => {
+    await expect(
+      service.generateSingleFixedExpenseTransaction({
+        userId: 'user-1',
+        periodId: 'period-september',
+        referenceMonth: new Date('2026-09-01T00:00:00.000Z'),
+        paidAt: new Date('2026-09-04T00:00:00.000Z'),
         fixedExpense: {
           id: 'fixed-expense-1',
           userId: 'user-1',
           categoryId: 'category-1',
-          cardId: 'card-1',
-          name: 'Assinatura',
-          amount: 90,
-          paymentMethod: TransactionType.CREDIT,
-          chargeDay: 31,
+          cardId: null,
+          name: 'Internet',
+          amount: 120,
+          paymentMethod: TransactionType.PIX,
+          chargeDay: 7,
+          createdAt: new Date('2026-09-08T15:00:00.000Z'),
         } as never,
-      });
+      }),
+    ).resolves.toBeNull();
 
-      expect(
-        createTransactionService.createTransactionInternal,
-      ).toHaveBeenCalledWith(
-        expect.objectContaining({
-          periodId: 'period-february',
-          transactionDate: new Date('2026-02-28T00:00:00.000Z'),
-          billingDate: new Date('2026-03-01T00:00:00.000Z'),
-        }),
-        prisma,
-      );
-    },
-  );
+    expect(prisma.card.findFirst).not.toHaveBeenCalled();
+    expect(
+      createTransactionService.createTransactionInternal,
+    ).not.toHaveBeenCalled();
+  });
 });
