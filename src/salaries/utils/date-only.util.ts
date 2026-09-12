@@ -9,7 +9,11 @@ export const firstDayOfUtcMonth = (date: Date): Date =>
 
 export const subUtcDateOnlyDays = (date: Date, days: number): Date =>
   new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() - days),
+    Date.UTC(
+      date.getUTCFullYear(),
+      date.getUTCMonth(),
+      date.getUTCDate() - days,
+    ),
   );
 
 export const todayAsUtcDateOnly = (): Date => {
@@ -19,3 +23,8 @@ export const todayAsUtcDateOnly = (): Date => {
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );
 };
+
+export const toUtcDateOnly = (date: Date): Date =>
+  new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );

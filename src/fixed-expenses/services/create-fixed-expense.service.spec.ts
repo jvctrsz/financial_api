@@ -27,6 +27,7 @@ describe('CreateFixedExpenseService', () => {
     amount: 120,
     paymentMethod: TransactionType.PIX,
     chargeDay: 7,
+    createdAt: new Date('2025-06-07T12:00:00.000Z'),
     deletedAt: null,
   };
   const period = {

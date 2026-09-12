@@ -110,4 +110,26 @@ describe('GenerateFixedExpenseTransactionsService', () => {
       generateSingleFixedExpenseTransactionService.generateSingleFixedExpenseTransaction,
     ).not.toHaveBeenCalled();
   });
+
+  it('nao deve incluir resultado quando a ocorrencia for anterior a criacao do FixedExpense', async () => {
+    prisma.fixedExpense.findMany.mockResolvedValue([
+      {
+        id: 'fixed-expense-1',
+        userId: 'user-1',
+        paymentMethod: TransactionType.PIX,
+      },
+    ]);
+    generateSingleFixedExpenseTransactionService.generateSingleFixedExpenseTransaction.mockResolvedValue(
+      null,
+    );
+
+    await expect(
+      service.generateFixedExpenseTransactions({
+        userId: 'user-1',
+        periodId: 'period-1',
+        referenceMonth,
+        paidAt,
+      }),
+    ).resolves.toEqual([]);
+  });
 });

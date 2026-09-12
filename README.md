@@ -15,8 +15,8 @@ separados o período cujo saldo foi comprometido (`periodId`) e o mês da fatura
 - salários e períodos financeiros;
 - categorias em dois níveis e cartão padrão;
 - transações de crédito, débito e PIX;
-- gastos parcelados no cartão ou boleto;
-- gastos fixos recorrentes gerados a cada novo período financeiro;
+- gastos parcelados retroativos no cartão ou boleto, reconstruídos desde a data real da compra;
+- gastos fixos recorrentes gerados pelo dia mensal de cobrança (`chargeDay`);
 - entradas mensais e reservas (`AsideExpense`);
 - relatórios de saldo, período financeiro e fatura;
 - rate limiting por usuário/IP e tipo de rota.
@@ -76,10 +76,6 @@ npx prisma migrate deploy
 Para desenvolvimento de novas migrations, use `prisma migrate dev` somente em um banco
 de desenvolvimento.
 
-> A migration `20260706000000_add_installment_payment_method` adiciona uma coluna
-> obrigatória sem backfill. Ela exige banco novo/resetado ou tratamento prévio de linhas
-> antigas em `installment_expenses`.
-
 ## Executando localmente
 
 ```bash
@@ -131,7 +127,7 @@ npm run build
 npx prisma validate
 ```
 
-A suíte unitária atual possui 54 suites e 292 testes. O arquivo
+A suíte unitária atual possui 57 suites e 317 testes. O arquivo
 `test/app.e2e-spec.ts` ainda é o teste de exemplo do starter NestJS e espera uma rota
 `GET /` inexistente; portanto, `npm run test:e2e` não representa o contrato atual e
 permanece pendente de substituição por cenários E2E reais.
