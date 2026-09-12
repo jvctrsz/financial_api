@@ -29,8 +29,8 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/throttler": "^6.5.0",
-    "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.8.0",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "argon2": "^0.44.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
@@ -39,7 +39,7 @@
     "dotenv": "^17.4.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
-    "prisma": "^7.8.0",
+    "prisma": "^7.10.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
@@ -71,8 +71,10 @@
   },
   "overrides": {
     "@hono/node-server": "1.19.13",
+    "deepmerge-ts": "8.0.2",
     "js-yaml": "5.2.2",
-    "multer": "2.2.0"
+    "multer": "2.3.0",
+    "mysql2": "3.24.4"
   },
   "jest": {
     "moduleFileExtensions": [

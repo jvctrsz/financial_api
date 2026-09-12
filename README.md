@@ -21,8 +21,7 @@ separados o período cujo saldo foi comprometido (`periodId`) e o mês da fatura
 - relatórios de saldo, período financeiro e fatura;
 - rate limiting por usuário/IP e tipo de rota.
 
-As regras de negócio completas estão em [RULES.md](./RULES.md). O contrato das rotas,
-com exemplos de requests e responses, está em [.agents/ROTAS.md](./.agents/ROTAS.md).
+As regras de negócio completas estão em [RULES.md](./RULES.md).
 
 ## Stack
 
@@ -183,13 +182,5 @@ do rate limiting deve ser revisto para um backend compartilhado.
 
 ## Processo de desenvolvimento
 
-Antes de implementar mudanças, leia nesta ordem:
-
-1. [RULES.md](./RULES.md), fonte de verdade das regras de negócio;
-2. [.agents/Controll/TODO.md](./.agents/Controll/TODO.md), escopo ativo quando o
-   documento não estiver marcado como concluído;
-3. [.agents/AGENT_RULES.md](./.agents/AGENT_RULES.md), padrões de implementação;
-4. [.agents/ROTAS.md](./.agents/ROTAS.md), contrato consumido pelo frontend.
-
-Ao concluir uma tarefa do TODO, marque-a como concluída e registre o resultado em
-`.agents/Controll/FINISHED.md`.
+Antes de implementar mudanças, consulte [RULES.md](./RULES.md), fonte de verdade das
+regras de negócio e decisões técnicas do projeto.
