@@ -111,7 +111,7 @@ describe('GenerateFixedExpenseTransactionsService', () => {
     ).not.toHaveBeenCalled();
   });
 
-  it('nao deve incluir resultado quando a ocorrencia for anterior a criacao do FixedExpense', async () => {
+  it('nao deve incluir resultado quando a ocorrencia for anterior a criação do FixedExpense', async () => {
     prisma.fixedExpense.findMany.mockResolvedValue([
       {
         id: 'fixed-expense-1',
