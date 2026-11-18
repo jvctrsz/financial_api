@@ -571,6 +571,50 @@ describe('CreateInstallmentExpenseService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('deve aceitar installmentAmount fracionado e jogar os centavos restantes na primeira parcela', async () => {
+    await service.createInstallmentExpense('user-1', {
+      description: 'patins',
+      totalAmount: 711.55,
+      installmentAmount: 71.155,
+      totalInstallments: 10,
+      paymentMethod: InstallmentPaymentMethod.BOLETO,
+      purchaseDate: '2025-07-07',
+      categoryId: 'category-1',
+    });
+
+    expect(prisma.installmentExpense.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        totalAmount: 711.55,
+        installmentAmount: 71.15,
+      }),
+    });
+
+    const amountsInCents = prisma.transaction.create.mock.calls.map(
+      ([{ data }]) => Math.round(Number(data.amount) * 100),
+    );
+
+    expect(amountsInCents).toEqual([7120, ...Array(9).fill(7115)]);
+    expect(amountsInCents.reduce((sum, value) => sum + value, 0)).toBe(71155);
+  });
+
+  it('deve dividir 100 em 3 parcelas como 33.34 + 33.33 + 33.33', async () => {
+    await service.createInstallmentExpense('user-1', {
+      description: 'Teste',
+      totalAmount: 100,
+      installmentAmount: 33.33,
+      totalInstallments: 3,
+      paymentMethod: InstallmentPaymentMethod.BOLETO,
+      purchaseDate: '2025-07-07',
+      categoryId: 'category-1',
+    });
+
+    const amountsInCents = prisma.transaction.create.mock.calls.map(
+      ([{ data }]) => Math.round(Number(data.amount) * 100),
+    );
+
+    expect(amountsInCents).toEqual([3334, 3333, 3333]);
+  });
+
   it('deve reconstruir parcelas historicas, atual e futuras desde purchaseDate com periodos existentes e inexistentes', async () => {
     jest.setSystemTime(new Date('2026-09-07T12:00:00.000Z'));
     prisma.card.findFirst.mockResolvedValue({ ...card, closingDay: 6 });

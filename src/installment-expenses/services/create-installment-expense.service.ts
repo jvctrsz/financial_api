@@ -33,6 +33,10 @@ export class CreateInstallmentExpenseService {
     const startMonth = firstDayOfUtcMonth(purchaseDate);
 
     this.validateInstallmentTotal(dto);
+    const { regularAmount, amounts } = this.splitInstallmentAmounts(
+      dto.totalAmount,
+      dto.totalInstallments,
+    );
 
     const category = await this.findSubcategory(userId, dto.categoryId);
     const { card, type } = await this.resolvePaymentMethod(userId, dto);
@@ -45,7 +49,7 @@ export class CreateInstallmentExpenseService {
           cardId: card?.id ?? null,
           description: dto.description,
           totalAmount: dto.totalAmount,
-          installmentAmount: dto.installmentAmount,
+          installmentAmount: regularAmount,
           totalInstallments: dto.totalInstallments,
           paymentMethod: dto.paymentMethod,
           purchaseDate,
@@ -76,7 +80,7 @@ export class CreateInstallmentExpenseService {
             paid: null,
             periodId,
             type,
-            amount: dto.installmentAmount,
+            amount: amounts[index],
             description: `${dto.description} — Parcela ${index + 1}/${dto.totalInstallments}`,
             transactionDate: baseDate,
             billingDate,
@@ -166,16 +170,43 @@ export class CreateInstallmentExpenseService {
     return card;
   };
 
+  /**
+   * Aceita installmentAmount com qualquer precisão (ex.: 711.55 / 10 = 71.155),
+   * desde que a soma das parcelas divirja do total em menos de 1 centavo por parcela.
+   */
   private validateInstallmentTotal = (dto: CreateInstallmentExpenseDto) => {
     const totalInCents = toCents(dto.totalAmount);
     const installmentsInCents =
-      toCents(dto.installmentAmount) * dto.totalInstallments;
+      dto.installmentAmount * 100 * dto.totalInstallments;
+    const difference = Math.abs(totalInCents - installmentsInCents);
 
-    if (totalInCents !== installmentsInCents) {
+    if (difference >= dto.totalInstallments) {
       throw new BadRequestException(
         'installmentAmount multiplicado por totalInstallments deve ser igual a totalAmount.',
       );
     }
+  };
+
+  /**
+   * Divide totalAmount em parcelas com 2 casas decimais. Os centavos que sobram
+   * da divisão vão para a primeira parcela, garantindo que a soma bata com o total.
+   */
+  private splitInstallmentAmounts = (
+    totalAmount: number,
+    totalInstallments: number,
+  ) => {
+    const totalInCents = toCents(totalAmount);
+    const baseInCents = Math.floor(totalInCents / totalInstallments);
+    const remainderInCents = totalInCents - baseInCents * totalInstallments;
+
+    return {
+      regularAmount: baseInCents / 100,
+      amounts: Array.from(
+        { length: totalInstallments },
+        (_, index) =>
+          (index === 0 ? baseInCents + remainderInCents : baseInCents) / 100,
+      ),
+    };
   };
 
   private calculateInstallmentBillingDate = (

@@ -605,7 +605,7 @@ Para i de 0 até totalInstallments - 1:
     billingDate    = calculado
     periodId       = resolvido ou NULL
     installmentNumber = i + 1
-    amount         = installmentAmount
+    amount         = valor calculado da parcela (1ª parcela recebe o resto dos centavos)
     description    = "{description} — Parcela {i+1}/{totalInstallments}"
 ```
 
@@ -617,7 +617,8 @@ Para i de 0 até totalInstallments - 1:
 
 ### Validações
 
-- `installmentAmount * totalInstallments` deve ser igual a `totalAmount`. Rejeitar se divergir (ou calcular automaticamente um dos dois — definir na implementação).
+- `installmentAmount * totalInstallments` deve ser igual a `totalAmount`, com tolerância de menos de 1 centavo por parcela (aceita valores fracionados como `711.55 / 10 = 71.155`). Rejeitar se divergir além disso.
+- O valor de cada parcela é sempre calculado pelo backend a partir de `totalAmount` em centavos: `floor(totalCents / totalInstallments)`; os centavos restantes vão para a **primeira parcela** (ex: `711.55 / 10` → 1ª parcela `71.20`, demais `71.15`). O `installmentAmount` persistido é o valor regular (sem o resto).
 - `categoryId` deve ser subcategoria do `userId`.
 - `purchaseDate` é obrigatório e deve ser uma data ISO válida.
 - `paymentMethod` deve ser `CREDIT_CARD` ou `BOLETO`.
