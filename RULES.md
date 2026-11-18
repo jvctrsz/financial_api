@@ -630,9 +630,16 @@ Para i de 0 até totalInstallments - 1:
 Ao fazer soft delete em um `InstallmentExpense`:
 
 1. Setar `deletedAt` no `InstallmentExpense`.
-2. Buscar todas as `Transaction` vinculadas (`installmentExpenseId = id`) onde `billingDate >= hoje` e `deletedAt IS NULL`.
-3. Setar `deletedAt = now()` nessas transações futuras.
-4. **Não tocar** nas transações passadas (`billingDate < hoje`) — elas são histórico imutável.
+2. Buscar todas as `Transaction` vinculadas (`installmentExpenseId = id`) onde `billingDate >= corte` e `deletedAt IS NULL`.
+3. Setar `deletedAt = now()` nessas transações.
+4. **Não tocar** nas transações de faturas já fechadas (`billingDate < corte`) — elas são histórico imutável.
+
+O **corte** depende do meio de pagamento:
+
+- Com cartão: `corte = calculateCreditBillingDate(hoje, card.closingDay)`, ou seja, o `billingDate` da fatura **aberta**. Exemplo com fechamento dia 06: em 03/11 o corte é `01/11` (a fatura de novembro ainda está aberta e é excluída); em 17/11 o corte é `01/12` (a fatura de novembro já fechou e é preservada).
+- Sem cartão: `corte = hoje`.
+
+> **Decisão:** comparar `billingDate` diretamente com `hoje` estava errado para crédito, porque `billingDate` é sempre o dia 1º do mês da fatura. Entre o dia 1º e o fechamento, a fatura do mês ainda está aberta, mas os itens dela eram preservados como se fossem histórico.
 
 ---
 
@@ -707,7 +714,7 @@ O campo `paid` (`boolean?`, nullable) vive na `Transaction`, não no `FixedExpen
 Ao fazer soft delete em um `FixedExpense`:
 
 1. Setar `deletedAt` no `FixedExpense`.
-2. Buscar todas as `Transaction` vinculadas a esse `FixedExpense` onde `billingDate >= hoje` e `deletedAt IS NULL`.
+2. Buscar todas as `Transaction` vinculadas a esse `FixedExpense` onde `billingDate >= corte` e `deletedAt IS NULL` (mesma regra de corte do `InstallmentExpense`, seção 8).
 3. Setar `deletedAt = now()` nessas transações futuras.
 4. **Não tocar** nas transações passadas — histórico imutável, preservado mesmo após o encerramento do gasto fixo.
 

@@ -62,6 +62,37 @@ describe('DeleteInstallmentExpenseService', () => {
     });
   });
 
+  it.each([
+    ['2026-11-03T12:00:00.000Z', '2026-11-01T00:00:00.000Z'],
+    ['2026-11-17T12:00:00.000Z', '2026-12-01T00:00:00.000Z'],
+  ])(
+    'deve usar a fatura aberta do cartão como corte quando hoje for %s',
+    async (now, expectedCutoff) => {
+      jest.setSystemTime(new Date(now));
+      prisma.installmentExpense.findFirst.mockResolvedValue({
+        ...installmentExpense,
+        cardId: 'card-1',
+      });
+      prisma.card.findFirst.mockResolvedValue({
+        id: 'card-1',
+        userId: 'user-1',
+        closingDay: 6,
+      });
+
+      await service.deleteInstallmentExpense('user-1', 'installment-expense-1');
+
+      expect(prisma.card.findFirst).toHaveBeenCalledWith({
+        where: { id: 'card-1', userId: 'user-1' },
+      });
+      expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          billingDate: { gte: new Date(expectedCutoff) },
+        }),
+        data: { deletedAt: expect.any(Date) },
+      });
+    },
+  );
+
   it('deve preservar parcelas passadas ao filtrar billingDate menor que hoje fora do update', async () => {
     await service.deleteInstallmentExpense('user-1', 'installment-expense-1');
 

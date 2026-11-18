@@ -48,6 +48,33 @@ describe('DeleteFixedExpenseService', () => {
     });
   });
 
+  it('deve usar a fatura aberta do cartão como corte para gasto fixo CREDIT', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-11-17T12:00:00.000Z'));
+    prisma.fixedExpense.findFirst.mockResolvedValue({
+      id: 'fixed-expense-1',
+      userId: 'user-1',
+      cardId: 'card-1',
+      deletedAt: null,
+    });
+    prisma.card.findFirst.mockResolvedValue({
+      id: 'card-1',
+      userId: 'user-1',
+      closingDay: 6,
+    });
+    prisma.transaction.updateMany.mockResolvedValue({ count: 1 });
+
+    await service.deleteFixedExpense('user-1', 'fixed-expense-1');
+
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        billingDate: { gte: new Date('2026-12-01T00:00:00.000Z') },
+      }),
+      data: { deletedAt: expect.any(Date) as Date },
+    });
+
+    jest.useRealTimers();
+  });
+
   it('deve rejeitar FixedExpense inexistente, de outro usuário ou já deletado', async () => {
     prisma.fixedExpense.findFirst.mockResolvedValue(null);
 

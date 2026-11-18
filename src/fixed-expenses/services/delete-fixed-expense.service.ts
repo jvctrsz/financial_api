@@ -1,14 +1,14 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { todayAsUtcDateOnly } from '../../salaries/utils/date-only.util';
+import { calculateCreditBillingDate } from '../../shared/helpers/billing-date.helper';
 
 @Injectable()
 export class DeleteFixedExpenseService {
   constructor(private readonly prisma: PrismaService) {}
 
   deleteFixedExpense = async (userId: string, fixedExpenseId: string) => {
-    const today = todayAsUtcDateOnly();
-
     return this.prisma.$transaction(async (tx) => {
       const fixedExpense = await tx.fixedExpense.findFirst({
         where: {
@@ -22,6 +22,11 @@ export class DeleteFixedExpenseService {
         throw new NotFoundException('Gasto fixo não encontrado.');
       }
 
+      const deletionCutoff = await this.resolveDeletionCutoff(
+        tx,
+        userId,
+        fixedExpense.cardId,
+      );
       const deletedAt = new Date();
       const deletedFixedExpense = await tx.fixedExpense.update({
         where: { id: fixedExpense.id },
@@ -34,7 +39,7 @@ export class DeleteFixedExpenseService {
           userId,
           deletedAt: null,
           billingDate: {
-            gte: today,
+            gte: deletionCutoff,
           },
         },
         data: {
@@ -44,5 +49,26 @@ export class DeleteFixedExpenseService {
 
       return deletedFixedExpense;
     });
+  };
+
+  private resolveDeletionCutoff = async (
+    tx: Prisma.TransactionClient,
+    userId: string,
+    cardId: string | null,
+  ) => {
+    const today = todayAsUtcDateOnly();
+
+    if (!cardId) {
+      return today;
+    }
+
+    const card = await tx.card.findFirst({
+      where: {
+        id: cardId,
+        userId,
+      },
+    });
+
+    return card ? calculateCreditBillingDate(today, card.closingDay) : today;
   };
 }
