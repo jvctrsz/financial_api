@@ -668,7 +668,8 @@ Para `FixedExpense` via `CREDIT`, `billingDate` é calculado com `calculateCredi
 ### Criação — `CreateFixedExpenseService`
 
 1. Criar o registro em `FixedExpense`.
-2. Se `startInCurrentPeriod = true` (default quando omitido): buscar o `SalaryPeriod` vigente do usuário e chamar `GenerateSingleFixedExpenseTransactionService` diretamente. A ocorrência é resolvida pelo `chargeDay` dentro desse período. Se a data calculada for anterior à data de criação do próprio `FixedExpense`, nenhuma transação é gerada.
+2. Se `startInCurrentPeriod = true` (default quando omitido): buscar o `SalaryPeriod` vigente do usuário e chamar `GenerateSingleFixedExpenseTransactionService` diretamente. A ocorrência é resolvida pelo `chargeDay` dentro desse período e é **sempre gerada**, mesmo que o `chargeDay` já tenha passado no período (ex: período iniciado em 06/11, `chargeDay = 10`, cadastro em 17/11 → ocorrência em 10/11). O usuário declarou explicitamente que o gasto pertence ao período vigente; sem isso, o gasto ficaria sem nenhuma `Transaction` até o próximo salário e não apareceria nos relatórios.
+   - A trava "não gerar ocorrência anterior à criação do `FixedExpense`" continua valendo apenas para a geração disparada por `CreateSalaryService` (seção 6), evitando gerar ocorrências em períodos retroativos cadastrados depois.
 3. Se `startInCurrentPeriod = false`: não gerar nenhuma `Transaction` agora. A primeira ocorrência só nasce quando o próximo `SalaryPeriod` for criado.
 
 > Se não existir nenhum `SalaryPeriod` (usuário sem salário cadastrado) e `startInCurrentPeriod = true`, retornar erro orientando o cadastro do salário antes de criar um `FixedExpense` — mesmo comportamento de ausência de período já adotado em `Transaction` (seção 7).

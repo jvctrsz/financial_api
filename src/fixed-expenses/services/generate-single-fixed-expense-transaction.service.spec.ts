@@ -288,4 +288,45 @@ describe('GenerateSingleFixedExpenseTransactionService', () => {
       createTransactionService.createTransactionInternal,
     ).not.toHaveBeenCalled();
   });
+
+  it('deve gerar ocorrencia do periodo vigente ja passada quando allowOccurrenceBeforeCreation for true', async () => {
+    prisma.card.findFirst.mockResolvedValue({
+      id: 'card-1',
+      userId: 'user-1',
+      closingDay: 6,
+    });
+
+    await service.generateSingleFixedExpenseTransaction({
+      userId: 'user-1',
+      periodId: 'period-november',
+      referenceMonth: new Date('2026-11-01T00:00:00.000Z'),
+      paidAt: new Date('2026-11-06T00:00:00.000Z'),
+      allowOccurrenceBeforeCreation: true,
+      fixedExpense: {
+        id: 'fixed-expense-1',
+        userId: 'user-1',
+        categoryId: 'category-1',
+        cardId: 'card-1',
+        name: 'claude',
+        amount: 120,
+        paymentMethod: TransactionType.CREDIT,
+        chargeDay: 10,
+        createdAt: new Date('2026-11-17T15:00:00.000Z'),
+      } as never,
+    });
+
+    expect(
+      createTransactionService.createTransactionInternal,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        periodId: 'period-november',
+        fixedExpenseId: 'fixed-expense-1',
+        paid: null,
+        type: TransactionType.CREDIT,
+        transactionDate: new Date('2026-11-10T00:00:00.000Z'),
+        billingDate: new Date('2026-12-01T00:00:00.000Z'),
+      }),
+      prisma,
+    );
+  });
 });

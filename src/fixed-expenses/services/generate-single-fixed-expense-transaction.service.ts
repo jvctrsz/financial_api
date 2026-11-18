@@ -14,6 +14,7 @@ type GenerateSingleFixedExpenseTransactionParams = {
   referenceMonth: Date;
   paidAt: Date;
   fixedExpense: FixedExpense;
+  allowOccurrenceBeforeCreation?: boolean;
 };
 
 @Injectable()
@@ -27,14 +28,24 @@ export class GenerateSingleFixedExpenseTransactionService {
     params: GenerateSingleFixedExpenseTransactionParams,
     prismaClient: PrismaTransactionClient = this.prisma,
   ) => {
-    const { userId, periodId, referenceMonth, paidAt, fixedExpense } = params;
+    const {
+      userId,
+      periodId,
+      referenceMonth,
+      paidAt,
+      fixedExpense,
+      allowOccurrenceBeforeCreation = false,
+    } = params;
     const occurrenceDate = resolveFixedExpenseOccurrenceDate({
       periodStartedAt: paidAt,
       referenceMonth,
       chargeDay: fixedExpense.chargeDay,
     });
 
-    if (occurrenceDate < toUtcDateOnly(fixedExpense.createdAt)) {
+    if (
+      !allowOccurrenceBeforeCreation &&
+      occurrenceDate < toUtcDateOnly(fixedExpense.createdAt)
+    ) {
       return null;
     }
 

@@ -170,10 +170,6 @@ export class CreateInstallmentExpenseService {
     return card;
   };
 
-  /**
-   * Aceita installmentAmount com qualquer precisão (ex.: 711.55 / 10 = 71.155),
-   * desde que a soma das parcelas divirja do total em menos de 1 centavo por parcela.
-   */
   private validateInstallmentTotal = (dto: CreateInstallmentExpenseDto) => {
     const totalInCents = toCents(dto.totalAmount);
     const installmentsInCents =
@@ -187,10 +183,6 @@ export class CreateInstallmentExpenseService {
     }
   };
 
-  /**
-   * Divide totalAmount em parcelas com 2 casas decimais. Os centavos que sobram
-   * da divisão vão para a primeira parcela, garantindo que a soma bata com o total.
-   */
   private splitInstallmentAmounts = (
     totalAmount: number,
     totalInstallments: number,

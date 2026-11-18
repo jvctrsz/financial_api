@@ -75,6 +75,7 @@ export class CreateFixedExpenseService {
             referenceMonth: period.referenceMonth,
             paidAt: period.startedAt,
             fixedExpense,
+            allowOccurrenceBeforeCreation: true,
           },
           tx,
         );
